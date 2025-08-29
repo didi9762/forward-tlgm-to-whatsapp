@@ -6,10 +6,6 @@ module.exports = {
     autorestart: true,
     watch: false,
     max_memory_restart: '1G',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3000
-    },
     // Auto-restart configuration
     restart_delay: 1000,
     max_restarts: 10,
