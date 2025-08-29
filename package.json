@@ -1,0 +1,37 @@
+{
+  "name": "bot-tlgrm-wsp",
+  "version": "1.0.0",
+  "description": "Telegram-to-WhatsApp forwarder (config + PM2 bootstrap)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:restart": "pm2 restart bot-tlgrm-wsp || pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop bot-tlgrm-wsp",
+    "pm2:logs": "pm2 logs bot-tlgrm-wsp",
+    "pm2:monit": "pm2 monit",
+    "setup": "chmod +x start.sh && ./start.sh"
+  },
+  "keywords": [
+    "telegram",
+    "whatsapp",
+    "bot",
+    "forwarder"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.64.0",
+    "puppeteer": "^21.6.1",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.5",
+    "whatsapp-web.js": "^1.33.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
