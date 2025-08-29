@@ -643,8 +643,8 @@ function restartTelegramBot() {
 // Start server
 loadConfigFromEnv();
 
-server.listen(PORT, async () => {
-    console.log(`Configuration server running on http://${process.env.HOST || 'localhost'}:${PORT}`);
+server.listen(PORT, process.env.HOST || '0.0.0.0', async () => {
+    console.log(`Configuration server running on http://${process.env.HOST || '0.0.0.0'}:${PORT}`);
     
     // Load configuration from environment
     
