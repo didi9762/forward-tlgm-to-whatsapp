@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="wa.css">
+    <link rel="stylesheet" href="te.css">
+    <title>Telegram Configuration</title>
+</head>
+
+<body>
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                🤖 Telegram-WhatsApp Bot
+            </a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Home</a>
+                <a href="/whatsapp-config.html" class="nav-btn">📱 WhatsApp Config</a>
+                <a href="/telegramConfig.html" class="nav-btn active">💬 Telegram Config</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header telegram-header">
+            <h1>💬 Telegram Configuration</h1>
+            <p>Manage your Telegram connection and channel listening settings</p>
+        </div>
+
+        <div class="content">
+            <!-- Connection Status Section -->
+            <div class="section">
+                <h2>📡 Connection Status</h2>
+                <div id="connectionStatus" class="status-indicator status-loading">
+                    <div class="status-dot"></div>
+                    <span>Checking connection...</span>
+                </div>
+
+                <div class="auth-section" id="authSection" style="display: none;">
+                    <label for="phoneNumber"><strong>Phone Number:</strong></label>
+                    <input type="tel" id="phoneNumber" placeholder="+1234567890" class="form-input">
+                    <button id="initializeBtn" class="btn btn-primary" onclick="initializeTelegram()">
+                        <span id="initializeBtnText">🔑 Initialize Telegram</span>
+                    </button>
+                </div>
+                <!-- Add this section after the auth-section div -->
+                <div class="code-section" id="codeSection" style="display: none;">
+                    <label for="verificationCode"><strong>Verification Code:</strong></label>
+                    <input type="text" id="verificationCode" placeholder="Enter the code from Telegram"
+                        class="form-input" maxlength="5">
+                    <button id="submitCodeBtn" class="btn btn-success" onclick="submitVerificationCode()">
+                        <span id="submitCodeBtnText">✅ Submit Code</span>
+                    </button>
+                </div>
+
+                <div class="password-section" id="passwordSection" style="display: none;">
+                    <label for="twoFAPassword"><strong>2FA Password:</strong></label>
+                    <input type="password" id="twoFAPassword" placeholder="Enter your 2FA password" class="form-input">
+                    <button id="submitPasswordBtn" class="btn btn-success" onclick="submit2FAPassword()">
+                        <span id="submitPasswordBtnText">🔐 Submit Password</span>
+                    </button>
+                </div>
+
+                <button id="restartBtn" class="btn btn-danger" onclick="restartTelegram()" disabled>
+                    <span id="restartBtnText">🔄 Restart Telegram</span>
+                </button>
+                
+                <button id="resetBtn" class="btn btn-reset-warning" onclick="resetTelegram()" disabled>
+                    <span id="resetBtnText">⚠️ Reset Session</span>
+                </button>
+            </div>
+
+            <!-- Client Info Section -->
+            <div class="section">
+                <h2>👤 Client Information</h2>
+                <div id="clientInfo" class="client-info">
+                    <p><strong>Status:</strong> <span id="clientStatus">Not connected</span></p>
+                    <p><strong>Name:</strong> <span id="clientName">-</span></p>
+                    <p><strong>Username:</strong> <span id="clientUsername">-</span></p>
+                    <p><strong>Phone:</strong> <span id="clientPhone">-</span></p>
+                </div>
+            </div>
+
+            <!-- Channels/Groups Section -->
+            <div class="section full-width">
+                <h2>📺 Available Channels & Groups</h2>
+                <div id="channelAlert" style="display: none;"></div>
+
+                <div class="channel-controls">
+                    <button id="loadChannelsBtn" class="btn" onclick="loadChannels()">
+                        <span id="loadChannelsBtnText">🔄 Load Channels</span>
+                    </button>
+                    <div class="channel-filter">
+                        <input type="text" id="channelFilter" placeholder="Filter channels..." class="form-input"
+                            oninput="filterChannels()">
+                    </div>
+                </div>
+
+                <div id="channelsList" class="channels-list">
+                    <div class="channels-placeholder">
+                        📺 Click "Load Channels" to see your Telegram channels and groups
+                    </div>
+                </div>
+            </div>
+
+            <!-- Listening Channels Section -->
+            <div class="section full-width">
+                <h2>🎧 Listening Channels</h2>
+                <p>These channels are currently being monitored for messages</p>
+
+                <div id="listeningChannels" class="listening-channels">
+                    <div class="listening-placeholder">
+                        🎧 No channels are currently being monitored
+                    </div>
+                </div>
+
+                <button id="saveListeningBtn" class="btn btn-success" onclick="saveListeningChannels()"
+                    style="margin-top: 15px;">
+                    💾 Save Listening Configuration
+                </button>
+            </div>
+
+            <!-- Message Forwarding Section -->
+            <div class="section full-width">
+                <h2>🔄 Message Forwarding</h2>
+                <div class="forwarding-info">
+                    <p><strong>WhatsApp Target Group:</strong> <span id="whatsappTarget">Not configured</span></p>
+                    <p><strong>Active Forwarding:</strong> <span id="forwardingStatus">❌ Inactive</span></p>
+                </div>
+
+                <div class="forwarding-controls">
+                    <button id="setupForwardingBtn" class="btn btn-primary" onclick="setupForwarding()">
+                        🚀 Setup Forwarding
+                    </button>
+                    <button id="stopForwardingBtn" class="btn btn-danger" onclick="stopForwarding()" disabled>
+                        ⏹️ Stop Forwarding
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statusInterval;
+        let channels = [];
+        let listeningChannels = [];
+        let currentConfig = {};
+        let forwardingHandlerId = null;
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function () {
+            checkConnectionStatus();
+            loadConfiguration(); // This now also calls loadForwardingStatus()
+            loadListeningChannels();
+            
+            // Auto-load channels if Telegram is ready
+            setTimeout(async () => {
+                try {
+                    const response = await fetch('/telegram/info');
+                    const data = await response.json();
+                    if (data.success && data.isReady) {
+                        await loadChannels(); // Auto-load channels when ready
+                    }
+                } catch (error) {
+                    console.log('Could not auto-load channels:', error);
+                }
+            }, 1000);
+            
+            startStatusUpdates();
+        });
+
+        // Check Telegram connection status
+        async function checkConnectionStatus() {
+            try {
+                const response = await fetch('/telegram/info');
+                const data = await response.json();
+
+                const statusEl = document.getElementById('connectionStatus');
+                const authSection = document.getElementById('authSection');
+                const restartBtn = document.getElementById('restartBtn');
+                const resetBtn = document.getElementById('resetBtn');
+
+                if (data.success && data.isReady) {
+                    statusEl.className = 'status-indicator status-connected';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>✅ Connected & Ready</span>';
+                    authSection.style.display = 'none';
+                    restartBtn.disabled = false;
+                    resetBtn.disabled = false;
+
+                    // Update client info
+                    updateClientInfo(data.clientInfo);
+                } else {
+                    statusEl.className = 'status-indicator status-disconnected';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Not Connected</span>';
+                    authSection.style.display = 'block';
+                    restartBtn.disabled = false;
+                    resetBtn.disabled = false;
+
+                    // Clear client info
+                    updateClientInfo(null);
+                }
+            } catch (error) {
+                console.error('Error checking status:', error);
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.className = 'status-indicator status-disconnected';
+                statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Connection Error</span>';
+            }
+        }
+
+        // Update client info display
+        function updateClientInfo(clientInfo) {
+            if (clientInfo) {
+                document.getElementById('clientStatus').textContent = 'Connected';
+                document.getElementById('clientName').textContent = `${clientInfo.firstName || ''} ${clientInfo.lastName || ''}`.trim() || '-';
+                document.getElementById('clientUsername').textContent = clientInfo.username ? `@${clientInfo.username}` : '-';
+                document.getElementById('clientPhone').textContent = clientInfo.phone || '-';
+            } else {
+                document.getElementById('clientStatus').textContent = 'Not connected';
+                document.getElementById('clientName').textContent = '-';
+                document.getElementById('clientUsername').textContent = '-';
+                document.getElementById('clientPhone').textContent = '-';
+            }
+        }
+
+        // Initialize Telegram
+        async function initializeTelegram() {
+            const phoneNumber = document.getElementById('phoneNumber').value.trim();
+
+            if (!phoneNumber) {
+                showAlert('error', '❌ Please enter your phone number');
+                return;
+            }
+
+            const initializeBtn = document.getElementById('initializeBtn');
+            const initializeBtnText = document.getElementById('initializeBtnText');
+
+            initializeBtn.disabled = true;
+            initializeBtnText.innerHTML = '<div class="loading"></div> Initializing...';
+
+            try {
+                const response = await fetch('/telegram/initialize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phoneNumber })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', '✅ Telegram initialization started!');
+                    // Start checking auth status instead of immediate connection check
+                    checkAuthStatus();
+                } else {
+                    showAlert('error', '❌ Failed to initialize Telegram: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error initializing Telegram:', error);
+                showAlert('error', '❌ Error initializing Telegram. Check console for details.');
+                // Start checking auth status even on error to handle code prompts
+                setTimeout(checkAuthStatus, 1000);
+            } finally {
+                initializeBtn.disabled = false;
+                initializeBtnText.innerHTML = '🔑 Initialize Telegram';
+            }
+        }
+
+        // Restart Telegram
+        async function restartTelegram() {
+            const restartBtn = document.getElementById('restartBtn');
+            const restartBtnText = document.getElementById('restartBtnText');
+
+            restartBtn.disabled = true;
+            restartBtnText.innerHTML = '<div class="loading"></div> Restarting...';
+
+            try {
+                const response = await fetch('/telegram/restart', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', '✅ Telegram restarted successfully!');
+                    setTimeout(() => {
+                        checkConnectionStatus();
+                        loadChannels();
+                        loadListeningChannels();
+                    }, 2000);
+                } else {
+                    showAlert('error', '❌ Failed to restart Telegram: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error restarting Telegram:', error);
+                showAlert('error', '❌ Error restarting Telegram');
+            } finally {
+                restartBtn.disabled = false;
+                restartBtnText.innerHTML = '🔄 Restart Telegram';
+            }
+        }
+
+        // Load channels
+        async function loadChannels() {
+            const loadChannelsBtn = document.getElementById('loadChannelsBtn');
+            const loadChannelsBtnText = document.getElementById('loadChannelsBtnText');
+
+            loadChannelsBtn.disabled = true;
+            loadChannelsBtnText.innerHTML = '<div class="loading"></div> Loading...';
+
+            try {
+                const response = await fetch('/telegram/channels');
+                const data = await response.json();
+
+                const channelsList = document.getElementById('channelsList');
+
+                if (data.success && data.channels) {
+                    channels = data.channels;
+                    console.log('channels', channels.slice(0, 10));
+                    
+                    renderChannels(channels);
+                    showAlert('success', `✅ Loaded ${data.channels.length} channels and groups`);
+                } else {
+                    channelsList.innerHTML = '<div class="channels-placeholder">❌ Failed to load channels</div>';
+                    showAlert('error', '❌ Failed to load channels: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error loading channels:', error);
+                const channelsList = document.getElementById('channelsList');
+                channelsList.innerHTML = '<div class="channels-placeholder">❌ Error loading channels</div>';
+                showAlert('error', '❌ Error loading channels');
+            } finally {
+                loadChannelsBtn.disabled = false;
+                loadChannelsBtnText.innerHTML = '🔄 Load Channels';
+            }
+        }
+
+        // Render channels
+        function renderChannels(channelsToRender) {
+            const channelsList = document.getElementById('channelsList');
+
+            if (channelsToRender.length === 0) {
+                channelsList.innerHTML = '<div class="channels-placeholder">📺 No channels found</div>';
+                return;
+            }
+
+            channelsList.innerHTML = channelsToRender.map(channel => `
+                <div class="channel-item ${listeningChannels.includes(channel.id) ? 'listening' : ''}" data-channel-id="${channel.id}">
+                    <div class="channel-info">
+                        <div class="channel-title">
+                            ${getChannelIcon(channel)} ${channel.title}
+                        </div>
+                        <div class="channel-details">
+                            <span class="channel-type">${getChannelType(channel)}</span>
+                            ${channel.participantsCount ? `<span class="channel-members">${channel.participantsCount} members</span>` : ''}
+                        </div>
+                    </div>
+                    <button class="btn btn-sm ${listeningChannels.includes(channel.id) ? 'btn-danger' : 'btn-success'}" 
+                            onclick="toggleChannelListening('${channel.id}')">
+                        ${listeningChannels.includes(channel.id) ? '🔇 Stop Listening' : '🎧 Start Listening'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Get channel icon
+        function getChannelIcon(channel) {
+            if (channel.isChannel) return '��';
+            if (channel.isMegagroup) return '💬';
+            if (channel.isGroup) return '👥';
+            return '📱';
+        }
+
+        // Get channel type
+        function getChannelType(channel) {
+            if (channel.isChannel) return 'Channel';
+            if (channel.isMegagroup) return 'Megagroup';
+            if (channel.isGroup) return 'Group';
+            return 'Chat';
+        }
+
+        // Filter channels
+        function filterChannels() {
+            const filter = document.getElementById('channelFilter').value.toLowerCase();
+            const filteredChannels = channels.filter(channel =>
+                channel.title.toLowerCase().includes(filter) ||
+                (channel.username && channel.username.toLowerCase().includes(filter))
+            );
+            renderChannels(filteredChannels);
+        }
+
+        // Toggle channel listening
+        async function toggleChannelListening(channelId) {
+            const isListening = listeningChannels.includes(channelId);
+
+            try {
+                if (isListening) {
+                    // Stop listening
+                    const response = await fetch('/telegram/stop-listening', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ channelIds: [channelId] })
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        listeningChannels = listeningChannels.filter(id => id !== channelId);
+                        showAlert('success', '✅ Stopped listening to channel');
+                    } else {
+                        showAlert('error', '❌ Failed to stop listening: ' + data.error);
+                    }
+                } else {
+                    // Start listening
+                    const response = await fetch('/telegram/listen', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ channelIds: [channelId] })
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        listeningChannels.push(channelId);
+                        showAlert('success', '✅ Started listening to channel');
+                    } else {
+                        showAlert('error', '❌ Failed to start listening: ' + data.error);
+                    }
+                }
+
+                // Re-render channels and listening list
+                renderChannels(channels.filter(channel => {
+                    const filter = document.getElementById('channelFilter').value.toLowerCase();
+                    return channel.title.toLowerCase().includes(filter) ||
+                        (channel.username && channel.username.toLowerCase().includes(filter));
+                }));
+                renderListeningChannels();
+
+            } catch (error) {
+                console.error('Error toggling channel listening:', error);
+                showAlert('error', '❌ Error toggling channel listening');
+            }
+        }
+
+        // Load listening channels
+        async function loadListeningChannels() {
+            try {
+                const response = await fetch('/telegram/listening');
+                const data = await response.json();
+
+                if (data.success) {
+                    listeningChannels = data.listeningChannels || [];
+                    renderListeningChannels();
+                    
+                    // If we have listening channels but no channels loaded, and Telegram is ready,
+                    // auto-load channels to show proper names
+                    if (listeningChannels.length > 0 && channels.length === 0) {
+                        const infoResponse = await fetch('/telegram/info');
+                        const infoData = await infoResponse.json();
+                        if (infoData.success && infoData.isReady) {
+                            console.log('Auto-loading channels to resolve unknown channel names...');
+                            await loadChannels();
+                            renderListeningChannels()
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading listening channels:', error);
+            }
+        }
+
+        // Render listening channels
+        function renderListeningChannels() {
+            const listeningContainer = document.getElementById('listeningChannels');
+
+            if (listeningChannels.length === 0) {
+                listeningContainer.innerHTML = '<div class="listening-placeholder">🎧 No channels are currently being monitored</div>';
+                return;
+            }
+
+            const listeningChannelDetails = listeningChannels.map(channelId => {
+                console.log('channelId', Math.abs(channelId));
+                
+                const channel = channels.find(c => c.id == Math.abs(channelId));
+                if (channel) {
+                    return channel;
+                } else {
+                    // For unknown channels, create a placeholder with the ID
+                    return { 
+                        id: channelId, 
+                        title: `Unknown Channel (ID: ${channelId.substring(0, 10)}...)`, 
+                        isChannel: true,
+                        isUnknown: true // Flag to identify unknown channels
+                    };
+                }
+            });
+
+            listeningContainer.innerHTML = listeningChannelDetails.map(channel => `
+                <div class="listening-channel-item ${channel.isUnknown ? 'unknown-channel' : ''}">
+                    <div class="channel-info">
+                        <div class="channel-title">
+                            ${getChannelIcon(channel)} ${channel.title}
+                            ${channel.isUnknown ? '<span class="unknown-badge">Unknown</span>' : ''}
+                        </div>
+                        <div class="channel-id">ID: ${channel.id}</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger" onclick="toggleChannelListening('${channel.id}')">
+                        🔇 Remove
+                    </button>
+                </div>
+            `).join('');
+
+        }
+
+        // Save listening channels (this is automatically done by the API)
+        function saveListeningChannels() {
+            showAlert('success', '✅ Listening configuration is automatically saved');
+        }
+
+        // Load configuration
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/config');
+                const data = await response.json();
+
+                if (data.success) {
+                    currentConfig = data.config;
+                    updateForwardingInfo();
+                }
+                
+                // Also load forwarding status from the new system
+                await loadForwardingStatus();
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+            }
+        }
+
+        // Add this new function after loadConfiguration
+        async function loadForwardingStatus() {
+            try {
+                console.log('Loading forwarding status...');
+                const response = await fetch('/telegram/forwarding/status');
+                const data = await response.json();
+                console.log('Forwarding status data:', data);
+
+                if (data.success) {
+                    const forwardingStatusEl = document.getElementById('forwardingStatus');
+                    const setupBtn = document.getElementById('setupForwardingBtn');
+                    const stopBtn = document.getElementById('stopForwardingBtn');
+
+                    if (data.isForwarding && data.activeSessions.length > 0) {
+                        console.log('Forwarding is active with', data.activeSessions.length, 'sessions');
+                        forwardingStatusEl.textContent = '✅ Active';
+                        setupBtn.style.display = 'none';
+                        stopBtn.disabled = false;
+                        stopBtn.style.display = 'inline-block';
+                        
+                        // Store the first active session for legacy compatibility
+                        if (data.activeSessions.length > 0) {
+                            forwardingHandlerId = data.activeSessions[0].ruleId;
+                        }
+                    } else if (data.totalActiveRules > 0 && data.telegramReady && data.whatsappReady) {
+                        console.log('Auto-starting forwarding rules. Active rules:', data.totalActiveRules, 'Telegram ready:', data.telegramReady, 'WhatsApp ready:', data.whatsappReady);
+                        // We have active rules but they're not running - auto-start them
+                        forwardingStatusEl.textContent = '🔄 Auto-starting...';
+                        setupBtn.style.display = 'none';
+                        stopBtn.style.display = 'none';
+                        
+                        try {
+                            const startResponse = await fetch('/telegram/forwarding/start-all', {
+                                method: 'POST'
+                            });
+                            const startData = await startResponse.json();
+                            console.log('Auto-start result:', startData);
+                            
+                            if (startData.success) {
+                                // Wait a moment and check status again
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                                await loadForwardingStatus(); // Recursive call to re-check status
+                            } else {
+                                console.error('Failed to auto-start:', startData.error);
+                                forwardingStatusEl.textContent = '❌ Failed to Start';
+                                setupBtn.style.display = 'inline-block';
+                            }
+                        } catch (error) {
+                            console.error('Error auto-starting forwarding:', error);
+                            forwardingStatusEl.textContent = '❌ Inactive';
+                            setupBtn.style.display = 'inline-block';
+                        }
+                    } else {
+                        console.log('Forwarding inactive. Rules:', data.totalActiveRules, 'Telegram ready:', data.telegramReady, 'WhatsApp ready:', data.whatsappReady);
+                        forwardingStatusEl.textContent = '❌ Inactive';
+                        setupBtn.style.display = 'inline-block';
+                        stopBtn.style.display = 'none';
+                        forwardingHandlerId = null;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading forwarding status:', error);
+            }
+        }
+
+        // Add this function after loadForwardingStatus (around line 565)
+        function updateForwardingInfo() {
+            const whatsappTarget = document.getElementById('whatsappTarget');
+            whatsappTarget.textContent = currentConfig.groupToSend || 'Not configured';
+        }
+
+        // Update the DOMContentLoaded event listener (around line 150)
+        document.addEventListener('DOMContentLoaded', function () {
+            checkConnectionStatus();
+            loadConfiguration(); // This now also calls loadForwardingStatus()
+            loadListeningChannels();
+            
+            // Auto-load channels if Telegram is ready
+            setTimeout(async () => {
+                try {
+                    const response = await fetch('/telegram/info');
+                    const data = await response.json();
+                    if (data.success && data.isReady) {
+                        await loadChannels(); // Auto-load channels when ready
+                    }
+                } catch (error) {
+                    console.log('Could not auto-load channels:', error);
+                }
+            }, 1000);
+            
+            startStatusUpdates();
+        });
+
+        // Replace the setupForwarding function (around line 598)
+        async function setupForwarding() {
+            if (!currentConfig.groupToSend) {
+                showAlert('error', '❌ Please configure WhatsApp target group first');
+                return;
+            }
+
+            if (listeningChannels.length === 0) {
+                showAlert('error', '❌ Please select channels to listen to first');
+                return;
+            }
+
+            const setupBtn = document.getElementById('setupForwardingBtn');
+            const stopBtn = document.getElementById('stopForwardingBtn');
+            const forwardingStatusEl = document.getElementById('forwardingStatus');
+
+            setupBtn.disabled = true;
+            setupBtn.innerHTML = '<div class="loading"></div> Setting up...';
+            forwardingStatusEl.textContent = '🔄 Setting up...';
+
+            try {
+                // First, clean up any existing rules and create/update the main rule
+                console.log('Cleaning up forwarding rules...');
+                const cleanupResponse = await fetch('/telegram/forwarding/cleanup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const cleanupData = await cleanupResponse.json();
+                console.log('Cleanup result:', cleanupData);
+
+                if (!cleanupData.success) {
+                    throw new Error('Failed to cleanup rules: ' + cleanupData.error);
+                }
+
+                // Wait a moment for cleanup to complete
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Now start all active rules (which should be just the main one)
+                console.log('Starting forwarding rules...');
+                forwardingStatusEl.textContent = '🔄 Starting...';
+                
+                const startResponse = await fetch('/telegram/forwarding/start-all', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const startData = await startResponse.json();
+                console.log('Start result:', startData);
+
+                if (startData.success) {
+                    // Wait a moment for the forwarding to fully initialize
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Now check the status
+                    console.log('Checking forwarding status...');
+                    const statusResponse = await fetch('/telegram/forwarding/status');
+                    const statusData = await statusResponse.json();
+                    console.log('Status result:', statusData);
+                    
+                    if (statusData.success && statusData.isForwarding && statusData.activeSessions.length > 0) {
+                        forwardingStatusEl.textContent = '✅ Active';
+                        setupBtn.style.display = 'none';
+                        stopBtn.disabled = false;
+                        stopBtn.style.display = 'inline-block';
+                        
+                        if (statusData.activeSessions.length > 0) {
+                            forwardingHandlerId = statusData.activeSessions[0].ruleId;
+                        }
+                        
+                        showAlert('success', `✅ Message forwarding setup successfully! Active sessions: ${statusData.activeSessions.length}`);
+                    } else {
+                        throw new Error(`Forwarding started but not active. Sessions: ${statusData.activeSessions?.length || 0}, isForwarding: ${statusData.isForwarding}`);
+                    }
+                } else {
+                    throw new Error('Failed to start forwarding: ' + startData.error);
+                }
+            } catch (error) {
+                console.error('Error setting up forwarding:', error);
+                forwardingStatusEl.textContent = '❌ Setup Failed';
+                showAlert('error', '❌ Error setting up forwarding: ' + error.message);
+            } finally {
+                setupBtn.disabled = false;
+                setupBtn.innerHTML = '🚀 Setup Forwarding';
+            }
+        }
+
+        // Update the stopForwarding function to use the new API (around line 588)
+        async function stopForwarding() {
+            if (!forwardingHandlerId) {
+                showAlert('error', '❌ No active forwarding to stop');
+                return;
+            }
+
+            const setupBtn = document.getElementById('setupForwardingBtn');
+            const stopBtn = document.getElementById('stopForwardingBtn');
+
+            stopBtn.disabled = true;
+            stopBtn.innerHTML = '<div class="loading"></div> Stopping...';
+
+            try {
+                // Use the new forwarding rules API
+                const response = await fetch(`/telegram/forwarding/rules/${forwardingHandlerId}/stop`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    forwardingHandlerId = null;
+                    document.getElementById('forwardingStatus').textContent = '❌ Inactive';
+                    setupBtn.style.display = 'inline-block';
+                    stopBtn.style.display = 'none';
+                    showAlert('success', '✅ Message forwarding stopped');
+                } else {
+                    showAlert('error', '❌ Failed to stop forwarding: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error stopping forwarding:', error);
+                showAlert('error', '❌ Error stopping forwarding');
+            } finally {
+                stopBtn.disabled = false;
+                stopBtn.innerHTML = '⏹️ Stop Forwarding';
+            }
+        }
+
+        // Start status updates
+        function startStatusUpdates() {
+            statusInterval = setInterval(checkConnectionStatus, 10000);
+        }
+
+        // Show alert
+        function showAlert(type, message) {
+            const alertEl = document.getElementById('channelAlert');
+            alertEl.className = `alert alert-${type}`;
+            alertEl.textContent = message;
+            alertEl.style.display = 'block';
+
+            setTimeout(() => {
+                alertEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // Submit verification code
+        async function submitVerificationCode() {
+            const code = document.getElementById('verificationCode').value.trim();
+
+            if (!code) {
+                showAlert('error', '❌ Please enter the verification code');
+                return;
+            }
+
+            const submitCodeBtn = document.getElementById('submitCodeBtn');
+            const submitCodeBtnText = document.getElementById('submitCodeBtnText');
+
+            submitCodeBtn.disabled = true;
+            submitCodeBtnText.innerHTML = '<div class="loading"></div> Submitting...';
+
+            try {
+                const response = await fetch('/telegram/submit-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', '✅ Code submitted successfully!');
+                    document.getElementById('codeSection').style.display = 'none';
+                    // Start checking auth status
+                    checkAuthStatus();
+                } else {
+                    showAlert('error', '❌ Failed to submit code: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error submitting code:', error);
+                showAlert('error', '❌ Error submitting code');
+            } finally {
+                submitCodeBtn.disabled = false;
+                submitCodeBtnText.innerHTML = '✅ Submit Code';
+            }
+        }
+
+        // Submit 2FA password
+        async function submit2FAPassword() {
+            const password = document.getElementById('twoFAPassword').value.trim();
+
+            if (!password) {
+                showAlert('error', '❌ Please enter your 2FA password');
+                return;
+            }
+
+            const submitPasswordBtn = document.getElementById('submitPasswordBtn');
+            const submitPasswordBtnText = document.getElementById('submitPasswordBtnText');
+
+            submitPasswordBtn.disabled = true;
+            submitPasswordBtnText.innerHTML = '<div class="loading"></div> Submitting...';
+
+            try {
+                const response = await fetch('/telegram/submit-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', '✅ Password submitted successfully!');
+                    document.getElementById('passwordSection').style.display = 'none';
+                    // Start checking auth status
+                    checkAuthStatus();
+                } else {
+                    showAlert('error', '❌ Failed to submit password: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error submitting password:', error);
+                showAlert('error', '❌ Error submitting password');
+            } finally {
+                submitPasswordBtn.disabled = false;
+                submitPasswordBtnText.innerHTML = '🔐 Submit Password';
+            }
+        }
+
+        // Check authentication status
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/telegram/auth-status');
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.isWaitingForPhoneCode) {
+                        document.getElementById('codeSection').style.display = 'block';
+                        document.getElementById('passwordSection').style.display = 'none';
+                        showAlert('info', '📱 Please check your Telegram app for the verification code');
+                    } else if (data.isWaitingForPassword) {
+                        document.getElementById('codeSection').style.display = 'none';
+                        document.getElementById('passwordSection').style.display = 'block';
+                        showAlert('info', '🔐 Please enter your 2FA password');
+                    } else if (data.isReady) {
+                        document.getElementById('codeSection').style.display = 'none';
+                        document.getElementById('passwordSection').style.display = 'none';
+                        document.getElementById('authSection').style.display = 'none';
+                        checkConnectionStatus();
+                    } else if (data.isAuthenticating) {
+                        // Still authenticating, check again in 2 seconds
+                        setTimeout(checkAuthStatus, 2000);
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking auth status:', error);
+            }
+        }
+
+        // Reset Telegram (delete session)
+        async function resetTelegram() {
+            if (!confirm('⚠️ Are you sure you want to reset Telegram? This will delete your session and you will need to authenticate again.')) {
+                return;
+            }
+
+            const resetBtn = document.getElementById('resetBtn');
+            const resetBtnText = document.getElementById('resetBtnText');
+
+            resetBtn.disabled = true;
+            resetBtnText.innerHTML = '<div class="loading"></div> Resetting...';
+
+            try {
+                const response = await fetch('/telegram/reset', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('success', '✅ Telegram session reset successfully! Please initialize again.');
+                    
+                    // Clear UI state
+                    listeningChannels = [];
+                    channels = [];
+                    forwardingHandlerId = null;
+                    
+                    // Reset UI elements
+                    document.getElementById('channelsList').innerHTML = '<div class="channels-placeholder">📺 Click "Load Channels" to see your Telegram channels and groups</div>';
+                    document.getElementById('listeningChannels').innerHTML = '<div class="listening-placeholder">🎧 No channels are currently being monitored</div>';
+                    document.getElementById('forwardingStatus').textContent = '❌ Inactive';
+                    document.getElementById('setupForwardingBtn').style.display = 'inline-block';
+                    document.getElementById('stopForwardingBtn').style.display = 'none';
+                    
+                    // Show auth section
+                    document.getElementById('authSection').style.display = 'block';
+                    document.getElementById('codeSection').style.display = 'none';
+                    document.getElementById('passwordSection').style.display = 'none';
+                    
+                    // Update connection status
+                    setTimeout(() => {
+                        checkConnectionStatus();
+                    }, 1000);
+                } else {
+                    showAlert('error', '❌ Failed to reset Telegram: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error resetting Telegram:', error);
+                showAlert('error', '❌ Error resetting Telegram');
+            } finally {
+                resetBtn.disabled = false;
+                resetBtnText.innerHTML = '⚠️ Reset Session';
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function () {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+            }
+        });
+    </script>
+</body>
+
+</html>

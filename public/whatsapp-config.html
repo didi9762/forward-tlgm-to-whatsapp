@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="wa.css">
+    <title>WhatsApp Configuration</title>
+</head>
+<body>
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                🤖 Telegram-WhatsApp Bot
+            </a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Home</a>
+                <a href="/telegramConfig.html" class="nav-btn">💬 Telegram Config</a>
+                <a href="/whatsapp-config.html" class="nav-btn active">📱 WhatsApp Config</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>🚀 WhatsApp Configuration</h1>
+            <p>Manage your WhatsApp Web connection and settings</p>
+        </div>
+
+        <div class="content">
+            <!-- Connection Status Section -->
+            <div class="section">
+                <h2>📱 Connection Status</h2>
+                <div id="connectionStatus" class="status-indicator status-loading">
+                    <div class="status-dot"></div>
+                    <span>Checking connection...</span>
+                </div>
+                
+                <button id="restartBtn" class="btn btn-danger" onclick="restartWhatsApp()" disabled>
+                    <span id="restartBtnText">🔄 Restart WhatsApp</span>
+                </button>
+                
+                <button id="resetBtn" class="btn btn-danger" onclick="resetWhatsApp()" disabled style="margin-left: 10px;">
+                    <span id="resetBtnText">⚠️ Reset Instance</span>
+                </button>
+            </div>
+
+            <!-- Screenshot Section -->
+            <div class="section">
+                <h2>📸 Live Screenshot</h2>
+                <p>Live view of WhatsApp Web (updates every 2 seconds)</p>
+                <div class="screenshot-container">
+                    <div id="screenshotPlaceholder" class="screenshot-placeholder">
+                        📱 Screenshot will appear here when WhatsApp is connected
+                    </div>
+                    <img id="screenshotImg" class="screenshot-img" style="display: none;" alt="WhatsApp Screenshot">
+                </div>
+            </div>
+
+            <!-- Group Selection Section -->
+            <div class="section full-width">
+                <h2>👥 Group Configuration</h2>
+                <div id="groupAlert" style="display: none;"></div>
+                
+                <div class="group-selector">
+                    <label for="groupSelect"><strong>Select Group to Send Messages:</strong></label>
+                    <div style="display: flex; gap: 10px; align-items: end; margin-top: 10px;">
+                        <select id="groupSelect" onchange="selectGroup()" disabled style="flex: 1;">
+                            <option value="">Loading groups...</option>
+                        </select>
+                        <button id="reloadGroupsBtn" class="btn" onclick="reloadGroups()" style="padding: 12px 16px;">
+                            🔄 Reload Groups
+                        </button>
+                    </div>
+                </div>
+
+                <div id="selectedGroupInfo" class="group-info" style="display: none;">
+                    <h4>📋 Selected Group Information</h4>
+                    <p><strong>Name:</strong> <span id="groupName">-</span></p>
+                    <p><strong>ID:</strong> <span id="groupId">-</span></p>
+                    <p><strong>Participants:</strong> <span id="groupParticipants">-</span></p>
+                </div>
+
+                <button id="saveGroupBtn" class="btn" onclick="saveSelectedGroup()" disabled style="margin-top: 15px;">
+                    💾 Save Group Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let screenshotInterval;
+        let statusInterval;
+        let groups = [];
+        let currentConfig = {};
+        let isPageVisible = true;
+
+        // Page visibility API
+        document.addEventListener('visibilitychange', function() {
+            isPageVisible = !document.hidden;
+            if (isPageVisible) {
+                startScreenshotUpdates();
+            } else {
+                stopScreenshotUpdates();
+            }
+        });
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            checkConnectionStatus();
+            loadConfiguration();
+            loadGroups();
+            startStatusUpdates();
+            startScreenshotUpdates(); // Always start screenshots when page loads
+        });
+
+        // Check WhatsApp connection status
+        async function checkConnectionStatus() {
+            try {
+                const response = await fetch('/whatsapp/status');
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('connectionStatus');
+                const restartBtn = document.getElementById('restartBtn');
+                const resetBtn = document.getElementById('resetBtn');
+                
+                if (data.success && data.isReady) {
+                    statusEl.className = 'status-indicator status-connected';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>✅ Connected & Ready</span>';
+                    restartBtn.disabled = false;
+                    resetBtn.disabled = false;
+                } else if (data.hasQrCode) {
+                    statusEl.className = 'status-indicator status-loading';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>📱 Waiting for QR Code Scan</span>';
+                    restartBtn.disabled = false;
+                    resetBtn.disabled = false;
+                } else {
+                    statusEl.className = 'status-indicator status-disconnected';
+                    statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Disconnected</span>';
+                    restartBtn.disabled = false;
+                    resetBtn.disabled = false;
+                }
+                // Note: Screenshots continue regardless of connection status
+            } catch (error) {
+                console.error('Error checking status:', error);
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.className = 'status-indicator status-disconnected';
+                statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Connection Error</span>';
+            }
+        }
+
+        // Restart WhatsApp
+        async function restartWhatsApp() {
+            const restartBtn = document.getElementById('restartBtn');
+            const restartBtnText = document.getElementById('restartBtnText');
+            
+            restartBtn.disabled = true;
+            restartBtnText.innerHTML = '<div class="loading"></div> Restarting...';
+            
+            try {
+                const response = await fetch('/whatsapp/restart', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('success', '✅ WhatsApp restarted successfully!');
+                    setTimeout(() => {
+                        checkConnectionStatus();
+                        loadGroups();
+                    }, 2000);
+                } else {
+                    showAlert('error', '❌ Failed to restart WhatsApp: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error restarting WhatsApp:', error);
+                showAlert('error', '❌ Error restarting WhatsApp');
+            } finally {
+                restartBtn.disabled = false;
+                restartBtnText.innerHTML = '🔄 Restart WhatsApp';
+            }
+        }
+
+        // Reset WhatsApp instance
+        async function resetWhatsApp() {
+            const resetBtn = document.getElementById('resetBtn');
+            const resetBtnText = document.getElementById('resetBtnText');
+            
+            // Confirm before reset
+            if (!confirm('⚠️ This will delete all WhatsApp authentication data and cache. You will need to scan the QR code again. Are you sure?')) {
+                return;
+            }
+            
+            resetBtn.disabled = true;
+            resetBtnText.innerHTML = '<div class="loading"></div> Resetting...';
+            
+            try {
+                const response = await fetch('/whatsapp/reset', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('success', '✅ WhatsApp instance reset successfully! Please scan the new QR code.');
+                    setTimeout(() => {
+                        checkConnectionStatus();
+                        loadGroups();
+                    }, 3000);
+                } else {
+                    showAlert('error', '❌ Failed to reset WhatsApp: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error resetting WhatsApp:', error);
+                showAlert('error', '❌ Error resetting WhatsApp instance');
+            } finally {
+                resetBtn.disabled = false;
+                resetBtnText.innerHTML = '⚠️ Reset Instance';
+            }
+        }
+
+        // Start screenshot updates - Always runs when page is open
+        function startScreenshotUpdates() {
+            if (screenshotInterval) clearInterval(screenshotInterval);
+            
+            screenshotInterval = setInterval(async () => {
+                if (isPageVisible) {
+                    await updateScreenshot();
+                }
+            }, 2000);
+            
+            // Initial screenshot
+            updateScreenshot();
+        }
+
+        // Stop screenshot updates
+        function stopScreenshotUpdates() {
+            if (screenshotInterval) {
+                clearInterval(screenshotInterval);
+                screenshotInterval = null;
+            }
+        }
+
+        // Update screenshot - Always attempts to get screenshot
+        async function updateScreenshot() {
+            try {
+                const response = await fetch('/whatsapp/screenshot');
+                const data = await response.json();
+                
+                const screenshotImg = document.getElementById('screenshotImg');
+                const placeholder = document.getElementById('screenshotPlaceholder');
+                
+                if (data.success && data.screenshot) {
+                    screenshotImg.src = data.screenshot;
+                    screenshotImg.style.display = 'block';
+                    placeholder.style.display = 'none';
+                } else {
+                    // Show placeholder but don't show error - keep trying
+                    screenshotImg.style.display = 'none';
+                    placeholder.style.display = 'block';
+                    placeholder.innerHTML = '📱 Waiting for WhatsApp session...';
+                }
+            } catch (error) {
+                console.error('Error updating screenshot:', error);
+                const screenshotImg = document.getElementById('screenshotImg');
+                const placeholder = document.getElementById('screenshotPlaceholder');
+                screenshotImg.style.display = 'none';
+                placeholder.style.display = 'block';
+                placeholder.innerHTML = '📱 Waiting for WhatsApp session...';
+            }
+        }
+
+        // Start status updates
+        function startStatusUpdates() {
+            statusInterval = setInterval(checkConnectionStatus, 5000);
+        }
+
+        // Load groups
+        async function loadGroups() {
+            try {
+                const response = await fetch('/whatsapp/groups');
+                const data = await response.json();
+                
+                const groupSelect = document.getElementById('groupSelect');
+                
+                if (data.success && data.groups) {
+                    groups = data.groups;
+                    groupSelect.innerHTML = '<option value="">Select a group...</option>';
+                    
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = `${group.name} (${group.participantsCount} members)`;
+                        groupSelect.appendChild(option);
+                    });
+                    
+                    groupSelect.disabled = false;
+                    
+                    // Select current configured group
+                    if (currentConfig.groupToSend) {
+                        groupSelect.value = currentConfig.groupToSend;
+                        selectGroup();
+                    }
+                } else {
+                    groupSelect.innerHTML = '<option value="">No groups available</option>';
+                    groupSelect.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error loading groups:', error);
+                const groupSelect = document.getElementById('groupSelect');
+                groupSelect.innerHTML = '<option value="">Error loading groups</option>';
+                groupSelect.disabled = true;
+            }
+        }
+
+        // Reload groups
+        async function reloadGroups() {
+            const groupSelect = document.getElementById('groupSelect');
+            groupSelect.innerHTML = '<option value="">Loading groups...</option>';
+            groupSelect.disabled = true;
+            try {
+                const response = await fetch('/whatsapp/groups');
+                const data = await response.json();
+                if (data.success && data.groups) {
+                    groups = data.groups;
+                    groupSelect.innerHTML = '<option value="">Select a group...</option>';
+                    data.groups.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.id;
+                        option.textContent = `${group.name} (${group.participantsCount} members)`;
+                        groupSelect.appendChild(option);
+                    });
+                    groupSelect.disabled = false;
+                    // Select current configured group
+                    if (currentConfig.groupToSend) {
+                        groupSelect.value = currentConfig.groupToSend;
+                        selectGroup();
+                    }
+                    showAlert('success', '✅ Groups reloaded successfully!');
+                } else {
+                    groupSelect.innerHTML = '<option value="">No groups available</option>';
+                    groupSelect.disabled = true;
+                    showAlert('error', '❌ Failed to reload groups: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error reloading groups:', error);
+                groupSelect.innerHTML = '<option value="">Error loading groups</option>';
+                groupSelect.disabled = true;
+                showAlert('error', '❌ Error reloading groups');
+            }
+        }
+
+        // Load configuration
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/config');
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentConfig = data.config;
+                }
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+            }
+        }
+
+        // Select group
+        function selectGroup() {
+            const groupSelect = document.getElementById('groupSelect');
+            const selectedGroupId = groupSelect.value;
+            const saveBtn = document.getElementById('saveGroupBtn');
+            const groupInfo = document.getElementById('selectedGroupInfo');
+            
+            if (selectedGroupId) {
+                const selectedGroup = groups.find(g => g.id === selectedGroupId);
+                
+                if (selectedGroup) {
+                    document.getElementById('groupName').textContent = selectedGroup.name;
+                    document.getElementById('groupId').textContent = selectedGroup.id;
+                    document.getElementById('groupParticipants').textContent = selectedGroup.participantsCount;
+                    
+                    groupInfo.style.display = 'block';
+                    saveBtn.disabled = false;
+                }
+            } else {
+                groupInfo.style.display = 'none';
+                saveBtn.disabled = true;
+            }
+        }
+
+        // Save selected group
+        async function saveSelectedGroup() {
+            const groupSelect = document.getElementById('groupSelect');
+            const selectedGroupId = groupSelect.value;
+            
+            if (!selectedGroupId) {
+                showAlert('error', '❌ Please select a group first');
+                return;
+            }
+            
+            const saveBtn = document.getElementById('saveGroupBtn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<div class="loading"></div> Saving...';
+            
+            try {
+                const response = await fetch('/config/updateWaGroup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        groupToSend: selectedGroupId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentConfig = data.config;
+                    showAlert('success', '✅ Group configuration saved successfully!');
+                } else {
+                    showAlert('error', '❌ Failed to save group configuration: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error saving group configuration:', error);
+                showAlert('error', '❌ Error saving group configuration');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '💾 Save Group Configuration';
+            }
+        }
+
+        // Show alert
+        function showAlert(type, message) {
+            const alertEl = document.getElementById('groupAlert');
+            alertEl.className = `alert alert-${type}`;
+            alertEl.textContent = message;
+            alertEl.style.display = 'block';
+            
+            setTimeout(() => {
+                alertEl.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

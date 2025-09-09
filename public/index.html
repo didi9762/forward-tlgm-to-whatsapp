@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="wa.css">
+    <title>Telegram-WhatsApp Bot</title>
+</head>
+<body>
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                🤖 Telegram-WhatsApp Bot
+            </a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn active">🏠 Home</a>
+                <a href="/whatsapp-config.html" class="nav-btn">📱 WhatsApp Config</a>
+                <a href="/telegramConfig.html" class="nav-btn">💬 Telegram Config</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Telegram-WhatsApp Bot</h1>
+            <p>Welcome to your bot configuration dashboard</p>
+        </div>
+
+        <div class="content">
+            <div class="section full-width navigation-section">
+                <a href="/whatsapp-config.html" class="btn btn-large">
+                    📱 Configure WhatsApp
+                </a>
+                <a href="/telegramConfig.html" class="btn btn-large telegram-btn">
+                    💬 Configure Telegram
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .navigation-section {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .telegram-btn {
+            background: linear-gradient(135deg, #0088cc 0%, #005577 100%) !important;
+            color: white !important;
+        }
+        
+        .telegram-btn:hover {
+            background: linear-gradient(135deg, #006699 0%, #004455 100%) !important;
+            transform: translateY(-2px);
+        }
+        
+        @media (max-width: 768px) {
+            .navigation-section {
+                flex-direction: column;
+            }
+        }
+    </style>
+</body>
+</html>
