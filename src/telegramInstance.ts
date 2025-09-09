@@ -433,7 +433,7 @@ export class TelegramInstance {
 
                 let titel = ''
                 const entity = await this.client.getEntity(chatId);
-                console.log('entity:', entity);
+                // console.log('entity:', entity);
                 if (entity.className === "Channel" || entity.className === "Chat") {
                     titel = entity.title;
                   } else if (entity.className === "User") {
