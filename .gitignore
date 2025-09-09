@@ -3,3 +3,5 @@
 .env
 logs
 node_modules
+telegram_session.txt
+config.json
