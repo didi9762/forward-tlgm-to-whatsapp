@@ -428,14 +428,14 @@ export class TelegramInstance {
 
                 // Fix: Handle BigInt-like Integer object properly
                 const chatId = message.chatId?.value?.toString() || message.chatId?.toString();
-                if (!chatId || !this.listeningChannels.has(chatId)) return;
+                if (!chatId || (!this.listeningChannels.has(chatId) && !this.listeningChannels.has(chatId.replace('-100', '')))) return;
                 console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
 
 
                 // Get channel info
-                const channel = await this.findChannel(Math.abs(Number(chatId)).toString());
+                // const channel = await this.findChannel(Math.abs(Number(chatId)).toString());
 
-                if (!channel) return;
+                // if (!channel) return;
 
                 // Create message object
                 const telegramMessage: TelegramMessage = {
@@ -445,7 +445,7 @@ export class TelegramInstance {
                     senderId: message.senderId?.value?.toString() || message.senderId?.toString(),
                     senderName: await this.getSenderName(message),
                     channelId: chatId,
-                    channelTitle: channel.title,
+                    channelTitle: message.chatTitle || 'Unknown',
                     isForwarded: !!message.fwdFrom,
                     forwardedFrom: message.fwdFrom?.fromName || message.fwdFrom?.fromId?.value?.toString() || message.fwdFrom?.fromId?.toString(),
                     mediaType: this.getMediaType(message),
@@ -462,7 +462,7 @@ export class TelegramInstance {
                     }
                 }
 
-                console.log(`New message from ${channel.title}: ${telegramMessage.text.substring(0, 100)}${telegramMessage.text.length > 100 ? '...' : ''}`);
+                console.log(`New message from ${telegramMessage.channelTitle}: ${telegramMessage.text.substring(0, 100)}${telegramMessage.text.length > 100 ? '...' : ''}`);
                 console.log(`Channel ID: ${telegramMessage.channelId}`);
                 console.log(`Number of message handlers: ${this.messageHandlers.length}`);
 
