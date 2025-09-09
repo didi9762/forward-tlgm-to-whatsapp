@@ -67,6 +67,7 @@ export class WhatsAppInstance {
                     this.currentQrCode = ''; // Clear QR code when ready
                     console.log('WhatsApp client is ready!');
                     this.client.getChats().then(() => {
+                        console.log('WhatsApp groups are ready!');
                         this.groupsReady = true;
                     });
                     resolve();
