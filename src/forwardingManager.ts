@@ -53,7 +53,7 @@ class ForwardingManager {
                 console.log(`ForwardingManager: Rule channels:`, rule.telegramChannelIds);
                 
                 // Check if this message is from one of the channels in this rule
-                if (rule.telegramChannelIds.includes(message.channelId)) {
+                if (rule.telegramChannelIds.includes(message.channelId) || rule.telegramChannelIds.includes(message.channelId.replace('-100', '-'))) {
                     console.log(`ForwardingManager: Message matches rule ${rule.name}, forwarding to WhatsApp`);
                     try {
                         await this.forwardMessageToWhatsApp(message, rule);
