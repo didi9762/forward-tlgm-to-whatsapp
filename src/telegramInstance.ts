@@ -432,10 +432,14 @@ export class TelegramInstance {
                 console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
 
 
-                // Get channel info
-                // const channel = await this.findChannel(Math.abs(Number(chatId)).toString());
-
-                // if (!channel) return;
+                let titel = ''
+                if (message.peerId?.className === "PeerChannel") {
+                    const channelId = message.peerId.channelId.value.toString();
+                
+                    // fetch full entity info
+                    const entity = await this.client.getEntity(message.peerId);
+                    titel = ('title' in entity ? entity.title : 'Unknown') || 'Unknown';
+                }
 
                 // Create message object
                 const telegramMessage: TelegramMessage = {
@@ -445,7 +449,7 @@ export class TelegramInstance {
                     senderId: message.senderId?.value?.toString() || message.senderId?.toString(),
                     senderName: await this.getSenderName(message),
                     channelId: chatId,
-                    channelTitle: message.chatTitle || 'Unknown',
+                    channelTitle: titel || message.chatTitle || 'Unknown', // Use the fetched title first
                     isForwarded: !!message.fwdFrom,
                     forwardedFrom: message.fwdFrom?.fromName || message.fwdFrom?.fromId?.value?.toString() || message.fwdFrom?.fromId?.toString(),
                     mediaType: this.getMediaType(message),
