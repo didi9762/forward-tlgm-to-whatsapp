@@ -7,7 +7,7 @@ import telegramApi from './telegramApi';
 import { configManager } from './configManager';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 1234;
 
 // Middleware
 app.use(cors());
@@ -87,7 +87,8 @@ process.on('unhandledRejection', (reason, promise) => {
     gracefulShutdown('unhandledRejection');
 });
 
-const server = app.listen(PORT, () => {
+console.log(PORT)
+const server = app.listen(Number(PORT), process.env.HOST || '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`API endpoints available at http://localhost:${PORT}/api/whatsapp`);
     

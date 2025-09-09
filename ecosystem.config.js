@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'bot-tlgrm-wsp',
-    script: 'server.js',
+    script: 'npm start',
     instances: 1,
     autorestart: true,
     watch: false,
