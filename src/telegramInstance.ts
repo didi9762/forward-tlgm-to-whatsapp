@@ -428,19 +428,17 @@ export class TelegramInstance {
 
                 // Fix: Handle BigInt-like Integer object properly
                 const chatId = message.chatId?.value?.toString() || message.chatId?.toString();
-                if (!chatId || (!this.listeningChannels.has(chatId) && !this.listeningChannels.has(chatId.replace('-100', '')))) return;
+                if (!chatId || (!this.listeningChannels.has(chatId) && !this.listeningChannels.has(chatId.replace('-100', '-')))) return;
                 console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
 
-
                 let titel = ''
-                if (message.peerId?.className === "PeerChannel") {
-                    const channelId = message.peerId.channelId.value.toString();
-                
-                    // fetch full entity info
-                    const entity = await this.client.getEntity(message.peerId);
-                    titel = ('title' in entity ? entity.title : 'Unknown') || 'Unknown';
-                }
-
+                const entity = await this.client.getEntity(chatId);
+                console.log('entity:', entity);
+                if (entity.className === "Channel" || entity.className === "Chat") {
+                    titel = entity.title;
+                  } else if (entity.className === "User") {
+                    titel = entity.firstName + ' ' + entity.lastName;
+                  }
                 // Create message object
                 const telegramMessage: TelegramMessage = {
                     id: message.id,
