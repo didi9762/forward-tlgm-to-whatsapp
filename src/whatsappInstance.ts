@@ -200,13 +200,13 @@ export class WhatsAppInstance {
      * Get all groups that the bot is part of
      * @returns Array of group chats
      */
-    public async getGroups(): Promise<GroupChat[]> {
+    public async getGroups(): Promise<GroupChat[] | string> {
         try {
             if (!this.isInitialized) {
                 throw new Error('WhatsApp client is not initialized');
             }
             if (!this.groupsReady) {
-                throw new Error('WhatsApp groups are not ready yet try again in few seconds or minutes');
+                return 'WhatsApp groups are not ready yet try again in few seconds or minutes';
             }
 
             const chats = await this.client.getChats();
@@ -318,7 +318,10 @@ export class WhatsAppInstance {
     private async findGroup(identifier: string): Promise<GroupChat | null> {
         try {
             const groups = await this.getGroups();
-            
+
+            if (typeof groups === 'string') {
+                return null;
+            }
             // First try to find by exact ID
             let group = groups.find(g => g.id._serialized === identifier);
             

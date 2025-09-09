@@ -65,6 +65,12 @@ router.get('/groups', async (req, res) => {
         }
 
         const groups = await whatsappInstance.getGroups();
+        if (typeof groups === 'string') {
+            return res.status(400).json({
+                success: false,
+                message: groups
+            });
+        }
         
         res.json({
             success: true,
