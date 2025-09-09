@@ -5,6 +5,7 @@ import * as path from 'path';
 
 export class WhatsAppInstance {
     private client: Client;
+    private groupsReady: boolean = false;
     private isInitialized: boolean = false;
     private currentQrCode: string = '';
     private qrCodeCallback?: (qr: string) => void;
@@ -65,6 +66,9 @@ export class WhatsAppInstance {
                     this.isInitialized = true;
                     this.currentQrCode = ''; // Clear QR code when ready
                     console.log('WhatsApp client is ready!');
+                    this.client.getChats().then(() => {
+                        this.groupsReady = true;
+                    });
                     resolve();
                 });
 
@@ -200,6 +204,9 @@ export class WhatsAppInstance {
         try {
             if (!this.isInitialized) {
                 throw new Error('WhatsApp client is not initialized');
+            }
+            if (!this.groupsReady) {
+                throw new Error('WhatsApp groups are not ready yet try again in few seconds or minutes');
             }
 
             const chats = await this.client.getChats();
