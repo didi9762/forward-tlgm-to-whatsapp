@@ -10,13 +10,20 @@ const messageListeners: Map<string, (message: TelegramMessage) => void> = new Ma
 
 // Auto-start forwarding when both clients are ready
 let autoStartAttempted = false;
+let autoStartInProgress = false; // Add this flag
+
 async function attemptAutoStart() {
-    if (autoStartAttempted) return;
+    if (autoStartAttempted || autoStartInProgress) return;
     
     if (telegramInstance.isReady() && whatsappInstance.isReady() && configManager.getAutoStartForwarding()) {
+        autoStartInProgress = true; // Set flag to prevent concurrent starts
         autoStartAttempted = true;
         console.log('Both clients are ready, starting configured forwarding rules...');
-        await forwardingManager.startAllActiveRules();
+        try {
+            await forwardingManager.startAllActiveRules();
+        } finally {
+            autoStartInProgress = false; // Reset flag
+        }
     }
 }
 

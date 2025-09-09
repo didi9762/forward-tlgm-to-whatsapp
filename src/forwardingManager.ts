@@ -32,6 +32,9 @@ class ForwardingManager {
                 return true;
             }
 
+            // CRITICAL FIX: Stop any existing rule first to prevent handler accumulation
+            this.stopForwardingRule(rule.id);
+
             // Check if Telegram client is ready
             if (!this.telegramInstance.isReady()) {
                 console.error('Telegram client is not ready');
