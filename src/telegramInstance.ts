@@ -48,6 +48,8 @@ export class TelegramInstance {
     private isAuthenticating: boolean = false;
     private phoneCodeResolver: ((code: string) => void) | null = null;
     private passwordResolver: ((password: string) => void) | null = null;
+    // Add this property to store event handler reference
+    private currentEventHandler: any = null;
 
     constructor() {
         this.sessionFilePath = path.join(process.cwd(), 'telegram_session.txt');
@@ -421,7 +423,13 @@ export class TelegramInstance {
      * Setup event handlers for the Telegram client
      */
     private setupEventHandlers(): void {
-        this.client.addEventHandler(async (event: any) => {
+        // Remove existing handler if it exists
+        if (this.currentEventHandler) {
+            this.client.removeEventHandler(this.currentEventHandler, new NewMessage({}));
+        }
+        
+        // Create and store the handler
+        this.currentEventHandler = async (event: any) => {
             try {
                 const message = event.message;
                 
@@ -483,7 +491,9 @@ export class TelegramInstance {
             } catch (error) {
                 console.error('Error handling message event:', error);
             }
-        }, new NewMessage({}));
+        };
+        
+        this.client.addEventHandler(this.currentEventHandler, new NewMessage({}));
     }
 
     /**
