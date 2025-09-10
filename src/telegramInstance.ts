@@ -810,7 +810,7 @@ export class TelegramInstance {
                 if (this.isInitialized && this.client && this.hasActiveForwardingRules()) {
                     console.log('Sending keep-alive ping to Telegram...');
                     await this.client.invoke(new Api.Ping({
-                        pingId: helpers.generateRandomBigInt();
+                        pingId: helpers.generateRandomBigInt()
                     }));
                     console.log('Keep-alive ping sent successfully');
                     this.reconnectAttempts = 0; // Reset reconnect attempts on successful ping
