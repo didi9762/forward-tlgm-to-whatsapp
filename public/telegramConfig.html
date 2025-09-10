@@ -457,9 +457,8 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    listeningChannels = data.listeningChannels || [];
-                    renderListeningChannels();
-                    
+                    listeningChannels = data.listeningChannels || [];         
+                    listeningChannels = listeningChannels.map(id=>id.replace('-', ''))           
                     // If we have listening channels but no channels loaded, and Telegram is ready,
                     // auto-load channels to show proper names
                     if (listeningChannels.length > 0 && channels.length === 0) {

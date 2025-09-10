@@ -152,11 +152,13 @@ router.post('/listen', async (req, res) => {
             });
         }
 
-        await telegramInstance.startListening(channelIds);
+        const channelIdsFormatted = [...new Set(channelIds.map(id => id.startsWith('-') ? id : `-${id}`))];
+
+        await telegramInstance.startListening(channelIdsFormatted);
         
         res.json({ 
             success: true, 
-            message: `Started listening to ${channelIds.length} channels`,
+            message: `Started listening to ${channelIdsFormatted.length} channels`,
             listeningChannels: telegramInstance.getListeningChannels()
         });
     } catch (error) {
