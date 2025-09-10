@@ -340,7 +340,7 @@ export interface ListeningConfig {
   id: string;
   whatsappGroupId: string;
   telegramSources: string[];
-  isEnabled: boolean;
+  isActive: boolean;
   createdAt: Date;
   lastModified: Date;
 }
@@ -450,7 +450,7 @@ async function getActiveListeningConfigs(): Promise<ListeningConfig[]> {
     conn = dbResult.conn;
     const coll = dbResult.coll;
 
-    const configs = await coll.find({ isEnabled: true }).toArray();
+    const configs = await coll.find({ isActive: true }).toArray();
     return configs as unknown as ListeningConfig[];
   } catch (error) {
     console.error('Error getting active listening configs:', error);

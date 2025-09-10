@@ -10,7 +10,7 @@ export interface AppConfig {
 
 class ConfigManager {
     private config: AppConfig;
-    private readonly CONFIG_ID = 'app_config';
+    private readonly CONFIG_ID = 'main_config';
     private defaultConfig: AppConfig = {
         whatsappGroupId: '',
         telegramChannelIds: [],

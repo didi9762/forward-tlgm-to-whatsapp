@@ -40,7 +40,7 @@ async function startForwarding() {
         id: 'main_config',
         whatsappGroupId: config.whatsappGroupId,
         telegramSources: config.telegramChannelIds,
-        isEnabled: config.isActive,
+        isActive: config.isActive,
         createdAt: config.createdAt,
         lastModified: config.lastModified
     };

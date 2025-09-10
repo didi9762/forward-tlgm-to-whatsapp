@@ -301,7 +301,7 @@
 
                 <div class="form-group">
                     <label>
-                        <input type="checkbox" id="isEnabled" name="isEnabled" checked>
+                        <input type="checkbox" id="isActived" name="isActived" checked>
                         Enable immediately
                     </label>
                 </div>
@@ -346,7 +346,7 @@
             const formData = new FormData(e.target);
             const whatsappGroupId = formData.get('whatsappGroupId');
             const telegramSourcesText = formData.get('telegramSources');
-            const isEnabled = formData.has('isEnabled');
+            const isActive = formData.has('isActive');
             
             const telegramSources = telegramSourcesText
                 .split('\n')
@@ -367,7 +367,7 @@
                     body: JSON.stringify({
                         whatsappGroupId,
                         telegramSources,
-                        isEnabled
+                        isActived
                     })
                 });
                 
@@ -376,7 +376,7 @@
                 if (result.success) {
                     showMessage('Configuration created successfully!', 'success');
                     document.getElementById('createConfigForm').reset();
-                    document.getElementById('isEnabled').checked = true;
+                    document.getElementById('isActived').checked = true;
                     loadConfigurations();
                 } else {
                     showMessage(`Error: ${result.error}`, 'error');
@@ -415,12 +415,12 @@
             }
             
             const html = configurations.map(config => `
-                <div class="config-item ${config.isEnabled ? 'active' : 'inactive'}">
+                <div class="config-item ${config.isActived ? 'active' : 'inactive'}">
                     <div class="config-header">
                         <div class="config-id">${config.id}</div>
                         <div>
-                            <span class="status-badge ${config.isEnabled ? 'status-enabled' : 'status-disabled'}">
-                                ${config.isEnabled ? 'Enabled' : 'Disabled'}
+                            <span class="status-badge ${config.isActived ? 'status-enabled' : 'status-disabled'}">
+                                ${config.isActived ? 'Enabled' : 'Disabled'}
                             </span>
                             ${config.isRunning ? '<span class="status-badge status-running">Running</span>' : ''}
                         </div>
@@ -437,7 +437,7 @@
                     </div>
                     
                     <div class="actions">
-                        ${config.isEnabled ? 
+                        ${config.isActived ? 
                             `<button onclick="disableConfig('${config.id}')" class="btn btn-danger">Disable</button>` :
                             `<button onclick="enableConfig('${config.id}')" class="btn btn-success">Enable</button>`
                         }
@@ -587,7 +587,7 @@
             // For now, just populate the form with existing values
             document.getElementById('whatsappGroupId').value = config.whatsappGroupId;
             document.getElementById('telegramSources').value = config.telegramSources.join('\n');
-            document.getElementById('isEnabled').checked = config.isEnabled;
+            document.getElementById('isActived').checked = config.isActived;
             
             // Scroll to form
             document.querySelector('.card').scrollIntoView({ behavior: 'smooth' });
