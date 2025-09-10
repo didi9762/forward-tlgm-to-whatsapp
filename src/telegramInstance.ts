@@ -38,7 +38,7 @@ export interface TelegramMessage {
 }
 
 export class TelegramInstance {
-    private client: TelegramClient;
+    private client!: TelegramClient; // Add ! to indicate it will be assigned
     private isInitialized: boolean = false;
     private sessionString: string = '';
     private sessionFilePath: string;
@@ -56,29 +56,34 @@ export class TelegramInstance {
         
         // Load existing session if available
         this.loadSession();
-        this.restart();
         
-        // Load listening channels from config
-        this.loadListeningChannelsFromConfig();
+        // Try to restart with existing session first
+        const restartedWithSession = this.restart();
         
-        const apiId = parseInt(process.env.TELEGRAM_API_ID || '0');
-        const apiHash = process.env.TELEGRAM_API_HASH || '';
-        
-        if (!apiId || !apiHash) {
-            throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in environment variables');
-        }
-
-        this.client = new TelegramClient(
-            new StringSession(this.sessionString),
-            apiId,
-            apiHash,
-            {
-                connectionRetries: 5,
-                useWSS: true,
+        // Only continue with constructor setup if restart didn't work with session
+        if (!restartedWithSession) {
+            // Load listening channels from config
+            this.loadListeningChannelsFromConfig();
+            
+            const apiId = parseInt(process.env.TELEGRAM_API_ID || '0');
+            const apiHash = process.env.TELEGRAM_API_HASH || '';
+            
+            if (!apiId || !apiHash) {
+                throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in environment variables');
             }
-        );
 
-        this.setupEventHandlers();
+            this.client = new TelegramClient(
+                new StringSession(this.sessionString),
+                apiId,
+                apiHash,
+                {
+                    connectionRetries: 5,
+                    useWSS: true,
+                }
+            );
+
+            this.setupEventHandlers();
+        }
     }
 
     /**
@@ -145,9 +150,16 @@ export class TelegramInstance {
 
     /**
      * Restart the Telegram client
+     * @returns boolean - true if successfully restarted with session, false if needs manual setup
      */
-    public async restart(): Promise<void> {
+    public async restart(): Promise<boolean> {
         try {
+            // Only restart if we have a valid session
+            if (!this.sessionString) {
+                console.log('No session available for restart');
+                return false;
+            }
+
             console.log('Restarting Telegram client...');
             
             if (this.isInitialized) {
@@ -165,7 +177,7 @@ export class TelegramInstance {
             const apiHash = process.env.TELEGRAM_API_HASH || '';
             
             this.client = new TelegramClient(
-                new StringSession(this.sessionString), // This uses the saved session
+                new StringSession(this.sessionString),
                 apiId,
                 apiHash,
                 {
@@ -176,16 +188,16 @@ export class TelegramInstance {
             this.loadListeningChannelsFromConfig();
             this.setupEventHandlers();
             
-            // For restart, we don't need to call initialize() with authentication
-            // Just connect using the existing session
+            // Connect using the existing session
             console.log('Connecting with saved session...');
             await this.client.connect();
             this.isInitialized = true;
             
-            console.log('Telegram client restarted successfully');
+            console.log('Telegram client restarted successfully with session');
+            return true;
         } catch (error) {
             console.error('Error restarting Telegram client:', error);
-            throw error;
+            return false;
         }
     }
 
