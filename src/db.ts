@@ -427,7 +427,7 @@ async function deleteListeningConfig(id: string): Promise<boolean> {
   }
 }
 
-module.exports = {
+export {
   insert,
   read,
   del,
