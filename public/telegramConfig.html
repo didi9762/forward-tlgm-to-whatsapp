@@ -148,21 +148,20 @@
         let channels = [];
         let listeningChannels = [];
         let currentConfig = {};
-        let forwardingHandlerId = null;
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', function () {
             checkConnectionStatus();
-            loadConfiguration(); // This now also calls loadForwardingStatus()
+            loadConfiguration();
             loadListeningChannels();
             
             // Auto-load channels if Telegram is ready
             setTimeout(async () => {
                 try {
-                    const response = await fetch('/telegram/info');
+                    const response = await fetch('/telegram/status');
                     const data = await response.json();
                     if (data.success && data.isReady) {
-                        await loadChannels(); // Auto-load channels when ready
+                        await loadChannels();
                     }
                 } catch (error) {
                     console.log('Could not auto-load channels:', error);
@@ -175,7 +174,7 @@
         // Check Telegram connection status
         async function checkConnectionStatus() {
             try {
-                const response = await fetch('/telegram/info');
+                const response = await fetch('/telegram/status');
                 const data = await response.json();
 
                 const statusEl = document.getElementById('connectionStatus');
@@ -189,18 +188,12 @@
                     authSection.style.display = 'none';
                     restartBtn.disabled = false;
                     resetBtn.disabled = false;
-
-                    // Update client info
-                    updateClientInfo(data.clientInfo);
                 } else {
                     statusEl.className = 'status-indicator status-disconnected';
                     statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Not Connected</span>';
                     authSection.style.display = 'block';
                     restartBtn.disabled = false;
                     resetBtn.disabled = false;
-
-                    // Clear client info
-                    updateClientInfo(null);
                 }
             } catch (error) {
                 console.error('Error checking status:', error);
@@ -397,79 +390,49 @@
             const isListening = listeningChannels.includes(channelId);
 
             try {
-                if (isListening) {
-                    // Stop listening
-                    const response = await fetch('/telegram/stop-listening', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ channelIds: [channelId] })
-                    });
+                const response = await fetch('/telegram/update-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        telegramChannelIds: isListening 
+                            ? listeningChannels.filter(id => id !== channelId)
+                            : [...listeningChannels, channelId]
+                    })
+                });
 
-                    const data = await response.json();
-                    if (data.success) {
-                        listeningChannels = listeningChannels.filter(id => id !== channelId);
-                        showAlert('success', '✅ Stopped listening to channel');
-                    } else {
-                        showAlert('error', '❌ Failed to stop listening: ' + data.error);
-                        return; // Don't re-render if the API call failed
-                    }
+                const data = await response.json();
+                if (data.success) {
+                    listeningChannels = data.config.telegramChannelIds;
+                    showAlert('success', isListening ? '✅ Stopped listening to channel' : '✅ Started listening to channel');
+                    
+                    // Re-render channels and listening list
+                    const filter = document.getElementById('channelFilter').value.toLowerCase();
+                    const filteredChannels = channels.filter(channel =>
+                        channel.title.toLowerCase().includes(filter) ||
+                        (channel.username && channel.username.toLowerCase().includes(filter))
+                    );
+                    renderChannels(filteredChannels);
+                    renderListeningChannels();
                 } else {
-                    // Start listening
-                    const response = await fetch('/telegram/listen', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ channelIds: [channelId] })
-                    });
-
-                    const data = await response.json();
-                    if (data.success) {
-                        listeningChannels.push(channelId);
-                        showAlert('success', '✅ Started listening to channel');
-                    } else {
-                        showAlert('error', '❌ Failed to start listening: ' + data.error);
-                        return; // Don't re-render if the API call failed
-                    }
+                    showAlert('error', '❌ Failed to update channels: ' + data.error);
                 }
-
-                // Re-render channels and listening list
-                const filter = document.getElementById('channelFilter').value.toLowerCase();
-                const filteredChannels = channels.filter(channel =>
-                    channel.title.toLowerCase().includes(filter) ||
-                    (channel.username && channel.username.toLowerCase().includes(filter))
-                );
-                renderChannels(filteredChannels);
-                renderListeningChannels();
-
             } catch (error) {
                 console.error('Error toggling channel listening:', error);
-                showAlert('error', '❌ Error toggling channel listening');
+                showAlert('error', '❌ Error updating channels');
             }
         }
 
         // Load listening channels
         async function loadListeningChannels() {
             try {
-                const response = await fetch('/telegram/listening');
+                const response = await fetch('/telegram/listening-channels');
                 const data = await response.json();
 
-                if (data.success) {
-                    listeningChannels = data.listeningChannels || [];         
-                    listeningChannels = listeningChannels.map(id=>id.replace('-', ''))           
-                    // If we have listening channels but no channels loaded, and Telegram is ready,
-                    // auto-load channels to show proper names
-                    if (listeningChannels.length > 0 && channels.length === 0) {
-                        const infoResponse = await fetch('/telegram/info');
-                        const infoData = await infoResponse.json();
-                        if (infoData.success && infoData.isReady) {
-                            console.log('Auto-loading channels to resolve unknown channel names...');
-                            await loadChannels();
-                            renderListeningChannels()
-                        }
-                    }
+                if (data.success && data.channels) {
+                    listeningChannels = data.channels || [];
+                    renderListeningChannels();
                 }
             } catch (error) {
                 console.error('Error loading listening channels:', error);
@@ -535,18 +498,18 @@
                     updateForwardingInfo();
                 }
                 
-                // Also load forwarding status from the new system
+                // Also load forwarding status
                 await loadForwardingStatus();
             } catch (error) {
                 console.error('Error loading configuration:', error);
             }
         }
 
-        // Add this new function after loadConfiguration
+        // Load forwarding status
         async function loadForwardingStatus() {
             try {
                 console.log('Loading forwarding status...');
-                const response = await fetch('/telegram/forwarding/status');
+                const response = await fetch('/telegram/forwarding-status');
                 const data = await response.json();
                 console.log('Forwarding status data:', data);
 
@@ -555,51 +518,15 @@
                     const setupBtn = document.getElementById('setupForwardingBtn');
                     const stopBtn = document.getElementById('stopForwardingBtn');
 
-                    if (data.isForwarding && data.activeSessions.length > 0) {
-                        console.log('Forwarding is active with', data.activeSessions.length, 'sessions');
+                    if (data.isActive) {
                         forwardingStatusEl.textContent = '✅ Active';
                         setupBtn.style.display = 'none';
                         stopBtn.disabled = false;
                         stopBtn.style.display = 'inline-block';
-                        
-                        // Store the first active session for legacy compatibility
-                        if (data.activeSessions.length > 0) {
-                            forwardingHandlerId = data.activeSessions[0].ruleId;
-                        }
-                    } else if (data.totalActiveRules > 0 && data.telegramReady && data.whatsappReady) {
-                        console.log('Auto-starting forwarding rules. Active rules:', data.totalActiveRules, 'Telegram ready:', data.telegramReady, 'WhatsApp ready:', data.whatsappReady);
-                        // We have active rules but they're not running - auto-start them
-                        forwardingStatusEl.textContent = '🔄 Auto-starting...';
-                        setupBtn.style.display = 'none';
-                        stopBtn.style.display = 'none';
-                        
-                        try {
-                            const startResponse = await fetch('/telegram/forwarding/start-all', {
-                                method: 'POST'
-                            });
-                            const startData = await startResponse.json();
-                            console.log('Auto-start result:', startData);
-                            
-                            if (startData.success) {
-                                // Wait a moment and check status again
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                await loadForwardingStatus(); // Recursive call to re-check status
-                            } else {
-                                console.error('Failed to auto-start:', startData.error);
-                                forwardingStatusEl.textContent = '❌ Failed to Start';
-                                setupBtn.style.display = 'inline-block';
-                            }
-                        } catch (error) {
-                            console.error('Error auto-starting forwarding:', error);
-                            forwardingStatusEl.textContent = '❌ Inactive';
-                            setupBtn.style.display = 'inline-block';
-                        }
                     } else {
-                        console.log('Forwarding inactive. Rules:', data.totalActiveRules, 'Telegram ready:', data.telegramReady, 'WhatsApp ready:', data.whatsappReady);
                         forwardingStatusEl.textContent = '❌ Inactive';
                         setupBtn.style.display = 'inline-block';
                         stopBtn.style.display = 'none';
-                        forwardingHandlerId = null;
                     }
                 }
             } catch (error) {
@@ -607,37 +534,15 @@
             }
         }
 
-        // Add this function after loadForwardingStatus (around line 565)
+        // Update forwarding info
         function updateForwardingInfo() {
             const whatsappTarget = document.getElementById('whatsappTarget');
-            whatsappTarget.textContent = currentConfig.groupToSend || 'Not configured';
+            whatsappTarget.textContent = currentConfig.whatsappGroupId || 'Not configured';
         }
 
-        // Update the DOMContentLoaded event listener (around line 150)
-        document.addEventListener('DOMContentLoaded', function () {
-            checkConnectionStatus();
-            loadConfiguration(); // This now also calls loadForwardingStatus()
-            loadListeningChannels();
-            
-            // Auto-load channels if Telegram is ready
-            setTimeout(async () => {
-                try {
-                    const response = await fetch('/telegram/info');
-                    const data = await response.json();
-                    if (data.success && data.isReady) {
-                        await loadChannels(); // Auto-load channels when ready
-                    }
-                } catch (error) {
-                    console.log('Could not auto-load channels:', error);
-                }
-            }, 1000);
-            
-            startStatusUpdates();
-        });
-
-        // Replace the setupForwarding function (around line 598)
+        // Setup forwarding
         async function setupForwarding() {
-            if (!currentConfig.groupToSend) {
+            if (!currentConfig.whatsappGroupId) {
                 showAlert('error', '❌ Please configure WhatsApp target group first');
                 return;
             }
@@ -656,65 +561,38 @@
             forwardingStatusEl.textContent = '🔄 Setting up...';
 
             try {
-                // First, clean up any existing rules and create/update the main rule
-                console.log('Cleaning up forwarding rules...');
-                const cleanupResponse = await fetch('/telegram/forwarding/cleanup', {
+                // Update config to active and start forwarding
+                const response = await fetch('/telegram/update-config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({
+                        isActive: true
+                    })
                 });
 
-                const cleanupData = await cleanupResponse.json();
-                console.log('Cleanup result:', cleanupData);
+                const data = await response.json();
 
-                if (!cleanupData.success) {
-                    throw new Error('Failed to cleanup rules: ' + cleanupData.error);
-                }
+                if (data.success) {
+                    // Try to start forwarding
+                    const startResponse = await fetch('/telegram/start-forwarding', {
+                        method: 'POST'
+                    });
 
-                // Wait a moment for cleanup to complete
-                await new Promise(resolve => setTimeout(resolve, 500));
+                    const startData = await startResponse.json();
 
-                // Now start all active rules (which should be just the main one)
-                console.log('Starting forwarding rules...');
-                forwardingStatusEl.textContent = '🔄 Starting...';
-                
-                const startResponse = await fetch('/telegram/forwarding/start-all', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                const startData = await startResponse.json();
-                console.log('Start result:', startData);
-
-                if (startData.success) {
-                    // Wait a moment for the forwarding to fully initialize
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    // Now check the status
-                    console.log('Checking forwarding status...');
-                    const statusResponse = await fetch('/telegram/forwarding/status');
-                    const statusData = await statusResponse.json();
-                    console.log('Status result:', statusData);
-                    
-                    if (statusData.success && statusData.isForwarding && statusData.activeSessions.length > 0) {
+                    if (startData.success) {
                         forwardingStatusEl.textContent = '✅ Active';
                         setupBtn.style.display = 'none';
                         stopBtn.disabled = false;
                         stopBtn.style.display = 'inline-block';
-                        
-                        if (statusData.activeSessions.length > 0) {
-                            forwardingHandlerId = statusData.activeSessions[0].ruleId;
-                        }
-                        
-                        showAlert('success', `✅ Message forwarding setup successfully! Active sessions: ${statusData.activeSessions.length}`);
+                        showAlert('success', '✅ Message forwarding setup successfully!');
                     } else {
-                        throw new Error(`Forwarding started but not active. Sessions: ${statusData.activeSessions?.length || 0}, isForwarding: ${statusData.isForwarding}`);
+                        throw new Error('Failed to start forwarding: ' + startData.error);
                     }
                 } else {
-                    throw new Error('Failed to start forwarding: ' + startData.error);
+                    throw new Error('Failed to update config: ' + data.error);
                 }
             } catch (error) {
                 console.error('Error setting up forwarding:', error);
@@ -726,13 +604,8 @@
             }
         }
 
-        // Update the stopForwarding function to use the new API (around line 588)
+        // Stop forwarding
         async function stopForwarding() {
-            if (!forwardingHandlerId) {
-                showAlert('error', '❌ No active forwarding to stop');
-                return;
-            }
-
             const setupBtn = document.getElementById('setupForwardingBtn');
             const stopBtn = document.getElementById('stopForwardingBtn');
 
@@ -740,18 +613,13 @@
             stopBtn.innerHTML = '<div class="loading"></div> Stopping...';
 
             try {
-                // Use the new forwarding rules API
-                const response = await fetch(`/telegram/forwarding/rules/${forwardingHandlerId}/stop`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                const response = await fetch('/telegram/stop-forwarding', {
+                    method: 'POST'
                 });
 
                 const data = await response.json();
 
                 if (data.success) {
-                    forwardingHandlerId = null;
                     document.getElementById('forwardingStatus').textContent = '❌ Inactive';
                     setupBtn.style.display = 'inline-block';
                     stopBtn.style.display = 'none';
@@ -926,7 +794,6 @@
                     // Clear UI state
                     listeningChannels = [];
                     channels = [];
-                    forwardingHandlerId = null;
                     
                     // Reset UI elements
                     document.getElementById('channelsList').innerHTML = '<div class="channels-placeholder">📺 Click "Load Channels" to see your Telegram channels and groups</div>';
