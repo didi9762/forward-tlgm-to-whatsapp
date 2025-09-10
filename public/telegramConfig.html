@@ -191,18 +191,38 @@
                     authSection.style.display = 'none';
                     restartBtn.disabled = false;
                     resetBtn.disabled = false;
+                    
+                    // Fetch and display client information
+                    try {
+                        const infoResponse = await fetch('/telegram/info');
+                        const infoData = await infoResponse.json();
+                        if (infoData.success && infoData.clientInfo) {
+                            updateClientInfo(infoData.clientInfo);
+                        } else {
+                            updateClientInfo(null);
+                        }
+                    } catch (infoError) {
+                        console.error('Error fetching client info:', infoError);
+                        updateClientInfo(null);
+                    }
                 } else {
                     statusEl.className = 'status-indicator status-disconnected';
                     statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Not Connected</span>';
                     authSection.style.display = 'block';
                     restartBtn.disabled = false;
                     resetBtn.disabled = false;
+                    
+                    // Clear client info when not connected
+                    updateClientInfo(null);
                 }
             } catch (error) {
                 console.error('Error checking status:', error);
                 const statusEl = document.getElementById('connectionStatus');
                 statusEl.className = 'status-indicator status-disconnected';
                 statusEl.innerHTML = '<div class="status-dot"></div><span>❌ Connection Error</span>';
+                
+                // Clear client info on error
+                updateClientInfo(null);
             }
         }
 

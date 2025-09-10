@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { configManager } from './configManager';
-
+import { getActiveListeningConfigs } from './db';
 // Load environment variables
 dotenv.config();
 
@@ -504,6 +504,9 @@ export class TelegramInstance {
                 const message = event.message;
                 
                 if (!message) return;
+                const activeConfigs = await getActiveListeningConfigs();
+                this.listeningChannels = new Set(activeConfigs[0]?.telegramSources);
+
 
                 // Fix: Handle BigInt-like Integer object properly
                 const chatId = message.chatId?.value?.toString() || message.chatId?.toString();
