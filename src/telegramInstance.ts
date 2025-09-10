@@ -529,7 +529,7 @@ export class TelegramInstance {
                     channelId: fixedId,
                     channelTitle: titel || message.chatTitle || 'Unknown', // Use the fetched title first
                     isForwarded: !!message.fwdFrom,
-                    forwardedFrom: message.fwdFrom?.fromName || message.fwdFrom?.fromId?.value?.toString() || message.fwdFrom?.fromId?.toString(),
+                    forwardedFrom: this.getForwardedFromName(message.fwdFrom),
                     mediaType: this.getMediaType(message),
                     hasMedia: !!message.media
                 };
@@ -586,6 +586,26 @@ export class TelegramInstance {
         } catch (error) {
             return undefined;
         }
+    }
+
+    /**
+     * Get forwarded from name from message
+     */
+    private getForwardedFromName(fwdFrom: any): string | undefined {
+        if (!fwdFrom) return undefined;
+
+        if (fwdFrom.fromId) {
+            const fromId = fwdFrom.fromId.value?.toString() || fwdFrom.fromId?.toString();
+            if (fromId) {
+                return fromId;
+            }
+        }
+
+        if (fwdFrom.fromName) {
+            return fwdFrom.fromName;
+        }
+
+        return undefined;
     }
 
     /**
