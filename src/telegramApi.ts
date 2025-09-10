@@ -3,14 +3,14 @@ import { TelegramMessage } from './telegramInstance';
 import { configManager } from './configManager';
 import { telegramInstance, whatsappInstance, forwardingManager } from './sharedInstances';
 import { ListeningConfig } from './db';
-const { 
+import { 
   saveListeningConfig, 
   updateListeningConfig, 
   getListeningConfig, 
   getAllListeningConfigs, 
   getActiveListeningConfigs, 
   deleteListeningConfig 
-} = require('./db');
+} from './db';
 
 const router = express.Router();
 
@@ -341,7 +341,7 @@ router.post('/forwarding/create', async (req, res) => {
         const channelIds = telegramChannelIds.map(id => id.startsWith('-') ? id : `-${id}`);
 
         // Create the forwarding rule
-        const newRule = configManager.addForwardingRule({
+        const newRule = await configManager.addForwardingRule({
             name,
             telegramChannelIds: channelIds,
             whatsappGroupId,
@@ -411,7 +411,7 @@ router.put('/forwarding/rules/:ruleId', async (req, res) => {
         const { ruleId } = req.params;
         const updates = req.body;
 
-        const updatedRule = configManager.updateForwardingRule(ruleId, updates);
+        const updatedRule = await configManager.updateForwardingRule(ruleId, updates);
         
         if (!updatedRule) {
             return res.status(404).json({ 
@@ -464,7 +464,7 @@ router.put('/forwarding/rules/:ruleId', async (req, res) => {
 /**
  * Delete a forwarding rule
  */
-router.delete('/forwarding/rules/:ruleId', (req, res) => {
+router.delete('/forwarding/rules/:ruleId', async (req, res) => {
     try {
         const { ruleId } = req.params;
 
@@ -473,7 +473,7 @@ router.delete('/forwarding/rules/:ruleId', (req, res) => {
             forwardingManager.stopForwardingConfig(ruleId);
         }
 
-        const deleted = configManager.deleteForwardingRule(ruleId);
+        const deleted = await configManager.deleteForwardingRule(ruleId);
         
         if (!deleted) {
             return res.status(404).json({ 
@@ -626,7 +626,7 @@ router.post('/forwarding/start-all', async (req, res) => {
         // Update Telegram listening channels based on all active rules
         const allChannelIds = configManager.getAllActiveChannelIds();
         if (allChannelIds.length > 0) {
-            configManager.setTelegramListeningChannels(allChannelIds);
+            await configManager.setTelegramListeningChannels(allChannelIds);
         }
 
         const activeSessions = await forwardingManager.getActiveSessionsInfo();
@@ -712,7 +712,7 @@ router.get('/forwarding/status', async (req, res) => {
 router.post('/forwarding/cleanup', async (req, res) => {
     try {
         // Clean up duplicate rules and create/update main rule
-        configManager.cleanupForwardingRules();
+        await configManager.cleanupForwardingRules();
         
         res.json({ 
             success: true, 
@@ -745,7 +745,7 @@ router.post('/setup-forwarding', async (req, res) => {
 
 
         // Create a new forwarding rule
-        const newRule = configManager.addForwardingRule({
+        const newRule = await configManager.addForwardingRule({
             name: ruleName || `Legacy Rule ${Date.now()}`,
             telegramChannelIds: telegramChannelIds,
             whatsappGroupId,

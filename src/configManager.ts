@@ -1,5 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import { database } from './db';
 
 export interface ForwardingRule {
     id: string;
@@ -21,64 +20,123 @@ export interface AppConfig {
 
 class ConfigManager {
     private config: AppConfig;
-    private configPath: string;
+    private readonly CONFIG_ID = 'app_config';
     private defaultConfig: AppConfig = {
         groupToSend: '',
         telegramListeningChannels: [],
         forwardingRules: [],
         autoStartForwarding: true
     };
+    private initialized = false;
 
-    constructor(configPath: string = 'config.json') {
-        this.configPath = path.resolve(configPath);
-        this.config = this.loadConfig();
+    constructor() {
+        this.config = { ...this.defaultConfig };
     }
 
     /**
-     * Load configuration from JSON file
+     * Initialize configuration - load from database
      */
-    private loadConfig(): AppConfig {
+    public async initialize(): Promise<void> {
+        if (this.initialized) return;
+        
         try {
-            if (fs.existsSync(this.configPath)) {
-                const configData = fs.readFileSync(this.configPath, 'utf8');
-                const parsedConfig = JSON.parse(configData);
-                
-                // Convert date strings back to Date objects for forwarding rules
-                if (parsedConfig.forwardingRules) {
-                    parsedConfig.forwardingRules = parsedConfig.forwardingRules.map((rule: any) => ({
-                        ...rule,
-                        createdAt: new Date(rule.createdAt),
-                        lastModified: new Date(rule.lastModified)
-                    }));
-                }
-                
-                // Merge with default config to ensure all properties exist
-                const config = { ...this.defaultConfig, ...parsedConfig };
-                
-                console.log('Configuration loaded from:', this.configPath);
-                return config;
-            } else {
-                console.log('Config file not found, using default configuration');
-                this.saveConfig(); // Create the file with default config
-                return { ...this.defaultConfig };
-            }
+            await this.loadConfig();
+            this.initialized = true;
+            console.log('ConfigManager initialized successfully');
         } catch (error) {
-            console.error('Error loading configuration:', error);
-            console.log('Using default configuration');
-            return { ...this.defaultConfig };
+            console.error('Failed to initialize ConfigManager:', error);
+            // Continue with default config
+            this.initialized = true;
         }
     }
 
     /**
-     * Save configuration to JSON file
+     * Ensure the config manager is initialized
      */
-    private saveConfig(): void {
+    private async ensureInitialized(): Promise<void> {
+        if (!this.initialized) {
+            await this.initialize();
+        }
+    }
+
+    /**
+     * Load configuration from database
+     */
+    private async loadConfig(): Promise<void> {
         try {
-            const configData = JSON.stringify(this.config, null, 2);
-            fs.writeFileSync(this.configPath, configData, 'utf8');
-            console.log('Configuration saved to:', this.configPath);
+            const dbResult = await database('app_config');
+            if (!dbResult) {
+                console.log('Database not available, using default configuration');
+                return;
+            }
+
+            const { conn, coll } = dbResult;
+            
+            try {
+                const configDoc = await coll.findOne({ configId: this.CONFIG_ID });
+                
+                if (configDoc) {
+                    // Convert date strings back to Date objects for forwarding rules
+                    if (configDoc.forwardingRules) {
+                        configDoc.forwardingRules = configDoc.forwardingRules.map((rule: any) => ({
+                            ...rule,
+                            createdAt: new Date(rule.createdAt),
+                            lastModified: new Date(rule.lastModified)
+                        }));
+                    }
+                    
+                    // Merge with default config to ensure all properties exist
+                    const config = { ...this.defaultConfig, ...configDoc };
+                    delete (config as any).configId; // Remove configId field
+                    delete (config as any).lastSaved; // Remove lastSaved field
+                    
+                    console.log('Configuration loaded from database');
+                    this.config = config;
+                } else {
+                    console.log('Config document not found in database, creating with default configuration');
+                    await this.saveConfig(); // Create the document with default config
+                }
+            } finally {
+                await conn.close();
+            }
         } catch (error) {
-            console.error('Error saving configuration:', error);
+            console.error('Error loading configuration from database:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Save configuration to database
+     */
+    private async saveConfig(): Promise<void> {
+        try {
+            const dbResult = await database('app_config');
+            if (!dbResult) {
+                console.error('Database not available, cannot save configuration');
+                return;
+            }
+
+            const { conn, coll } = dbResult;
+            
+            try {
+                const configToSave = {
+                    configId: this.CONFIG_ID,
+                    ...this.config,
+                    lastSaved: new Date()
+                };
+
+                await coll.replaceOne(
+                    { configId: this.CONFIG_ID }, 
+                    configToSave, 
+                    { upsert: true }
+                );
+                
+                console.log('Configuration saved to database');
+            } finally {
+                await conn.close();
+            }
+        } catch (error) {
+            console.error('Error saving configuration to database:', error);
             throw error;
         }
     }
@@ -100,25 +158,25 @@ class ConfigManager {
     /**
      * Set a specific configuration value
      */
-    public set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {
+    public async set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): Promise<void> {
         this.config[key] = value;
-        this.saveConfig();
+        await this.saveConfig();
     }
 
     /**
      * Update multiple configuration values
      */
-    public update(updates: Partial<AppConfig>): void {
+    public async update(updates: Partial<AppConfig>): Promise<void> {
         this.config = { ...this.config, ...updates };
-        this.saveConfig();
+        await this.saveConfig();
     }
 
     /**
      * Reset configuration to default values
      */
-    public reset(): void {
+    public async reset(): Promise<void> {
         this.config = { ...this.defaultConfig };
-        this.saveConfig();
+        await this.saveConfig();
     }
 
     /**
@@ -131,8 +189,8 @@ class ConfigManager {
     /**
      * Set group to send messages to
      */
-    public setGroupToSend(groupJid: string): void {
-        this.set('groupToSend', groupJid);
+    public async setGroupToSend(groupJid: string): Promise<void> {
+        await this.set('groupToSend', groupJid);
     }
 
     /**
@@ -145,29 +203,29 @@ class ConfigManager {
     /**
      * Set Telegram channels to listen to
      */
-    public setTelegramListeningChannels(channelIds: string[]): void {
+    public async setTelegramListeningChannels(channelIds: string[]): Promise<void> {
         channelIds = channelIds.map(id => id.startsWith('-') ? id : `-${id}`);
-        this.set('telegramListeningChannels', [...channelIds]);
+        await this.set('telegramListeningChannels', [...channelIds]);
     }
 
     /**
      * Add Telegram channel to listening list
      */
-    public addTelegramListeningChannel(channelId: string): void {
+    public async addTelegramListeningChannel(channelId: string): Promise<void> {
         const currentChannels = this.getTelegramListeningChannels();
         if (!currentChannels.includes(channelId)) {
             currentChannels.push(channelId);
-            this.setTelegramListeningChannels(currentChannels);
+            await this.setTelegramListeningChannels(currentChannels);
         }
     }
 
     /**
      * Remove Telegram channel from listening list
      */
-    public removeTelegramListeningChannel(channelId: string): void {
+    public async removeTelegramListeningChannel(channelId: string): Promise<void> {
         const currentChannels = this.getTelegramListeningChannels();
         const filteredChannels = currentChannels.filter(id => id !== channelId);
-        this.setTelegramListeningChannels(filteredChannels);
+        await this.setTelegramListeningChannels(filteredChannels);
     }
 
     // Forwarding Rules Management
@@ -196,7 +254,7 @@ class ConfigManager {
     /**
      * Add a new forwarding rule
      */
-    public addForwardingRule(rule: Omit<ForwardingRule, 'id' | 'createdAt' | 'lastModified'>): ForwardingRule {
+    public async addForwardingRule(rule: Omit<ForwardingRule, 'id' | 'createdAt' | 'lastModified'>): Promise<ForwardingRule> {
         const newRule: ForwardingRule = {
             ...rule,
             id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -205,7 +263,7 @@ class ConfigManager {
         };
 
         this.config.forwardingRules.push(newRule);
-        this.saveConfig();
+        await this.saveConfig();
         
         return newRule;
     }
@@ -213,7 +271,7 @@ class ConfigManager {
     /**
      * Update an existing forwarding rule
      */
-    public updateForwardingRule(ruleId: string, updates: Partial<Omit<ForwardingRule, 'id' | 'createdAt'>>): ForwardingRule | null {
+    public async updateForwardingRule(ruleId: string, updates: Partial<Omit<ForwardingRule, 'id' | 'createdAt'>>): Promise<ForwardingRule | null> {
         const ruleIndex = this.config.forwardingRules.findIndex(rule => rule.id === ruleId);
         
         if (ruleIndex === -1) {
@@ -226,19 +284,19 @@ class ConfigManager {
             lastModified: new Date()
         };
 
-        this.saveConfig();
+        await this.saveConfig();
         return this.config.forwardingRules[ruleIndex];
     }
 
     /**
      * Delete a forwarding rule
      */
-    public deleteForwardingRule(ruleId: string): boolean {
+    public async deleteForwardingRule(ruleId: string): Promise<boolean> {
         const initialLength = this.config.forwardingRules.length;
         this.config.forwardingRules = this.config.forwardingRules.filter(rule => rule.id !== ruleId);
         
         if (this.config.forwardingRules.length < initialLength) {
-            this.saveConfig();
+            await this.saveConfig();
             return true;
         }
         
@@ -248,10 +306,10 @@ class ConfigManager {
     /**
      * Activate a forwarding rule
      */
-    public activateForwardingRule(ruleId: string): boolean {
+    public async activateForwardingRule(ruleId: string): Promise<boolean> {
         const rule = this.getForwardingRule(ruleId);
         if (rule) {
-            return !!this.updateForwardingRule(ruleId, { isActive: true });
+            return !!(await this.updateForwardingRule(ruleId, { isActive: true }));
         }
         return false;
     }
@@ -259,10 +317,10 @@ class ConfigManager {
     /**
      * Deactivate a forwarding rule
      */
-    public deactivateForwardingRule(ruleId: string): boolean {
+    public async deactivateForwardingRule(ruleId: string): Promise<boolean> {
         const rule = this.getForwardingRule(ruleId);
         if (rule) {
-            return !!this.updateForwardingRule(ruleId, { isActive: false });
+            return !!(await this.updateForwardingRule(ruleId, { isActive: false }));
         }
         return false;
     }
@@ -277,8 +335,8 @@ class ConfigManager {
     /**
      * Set auto start forwarding setting
      */
-    public setAutoStartForwarding(autoStart: boolean): void {
-        this.set('autoStartForwarding', autoStart);
+    public async setAutoStartForwarding(autoStart: boolean): Promise<void> {
+        await this.set('autoStartForwarding', autoStart);
     }
 
     /**
@@ -299,7 +357,7 @@ class ConfigManager {
     /**
      * Get or create the main forwarding rule
      */
-    public getOrCreateMainForwardingRule(): ForwardingRule {
+    public async getOrCreateMainForwardingRule(): Promise<ForwardingRule> {
         // Look for an existing main rule
         let mainRule = this.config.forwardingRules.find(rule => rule.name === 'Main Forwarding Rule');
         
@@ -317,7 +375,7 @@ class ConfigManager {
             
             // Remove all other rules and add the main rule
             this.config.forwardingRules = [mainRule];
-            this.saveConfig();
+            await this.saveConfig();
         }
         
         return mainRule;
@@ -326,11 +384,11 @@ class ConfigManager {
     /**
      * Update the main forwarding rule with current listening channels
      */
-    public syncMainForwardingRule(): void {
-        const mainRule = this.getOrCreateMainForwardingRule();
+    public async syncMainForwardingRule(): Promise<void> {
+        const mainRule = await this.getOrCreateMainForwardingRule();
         
         // Update the rule with current listening channels and target group
-        this.updateForwardingRule(mainRule.id, {
+        await this.updateForwardingRule(mainRule.id, {
             telegramChannelIds: [...this.config.telegramListeningChannels],
             whatsappGroupId: this.config.groupToSend,
             lastModified: new Date()
@@ -340,9 +398,9 @@ class ConfigManager {
     /**
      * Clean up duplicate rules and keep only the main rule
      */
-    public cleanupForwardingRules(): void {
+    public async cleanupForwardingRules(): Promise<void> {
         // Keep only the main rule, deactivate others
-        const mainRule = this.getOrCreateMainForwardingRule();
+        const mainRule = await this.getOrCreateMainForwardingRule();
         
         this.config.forwardingRules = this.config.forwardingRules.map(rule => {
             if (rule.id !== mainRule.id) {
@@ -356,10 +414,17 @@ class ConfigManager {
             rule.id === mainRule.id || rule.isActive
         );
         
-        this.saveConfig();
+        await this.saveConfig();
     }
 }
 
-// Export singleton instance
-export const configManager = new ConfigManager();
+// Create and export singleton instance
+const configManager = new ConfigManager();
+
+// Initialize the config manager
+configManager.initialize().catch(error => {
+    console.error('Failed to initialize config manager:', error);
+});
+
+export { configManager };
 export default ConfigManager;
