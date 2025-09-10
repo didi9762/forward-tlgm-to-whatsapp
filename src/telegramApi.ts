@@ -2,6 +2,15 @@ import express from 'express';
 import { TelegramMessage } from './telegramInstance';
 import { configManager } from './configManager';
 import { telegramInstance, whatsappInstance, forwardingManager } from './sharedInstances';
+import { ListeningConfig } from './db';
+const { 
+  saveListeningConfig, 
+  updateListeningConfig, 
+  getListeningConfig, 
+  getAllListeningConfigs, 
+  getActiveListeningConfigs, 
+  deleteListeningConfig 
+} = require('./db');
 
 const router = express.Router();
 
@@ -20,7 +29,7 @@ async function attemptAutoStart() {
         autoStartAttempted = true;
         console.log('Both clients are ready, starting configured forwarding rules...');
         try {
-            await forwardingManager.startAllActiveRules();
+            await forwardingManager.startAllActiveConfigs();
         } finally {
             autoStartInProgress = false; // Reset flag
         }
@@ -71,14 +80,14 @@ router.post('/initialize', async (req, res) => {
 router.post('/restart', async (req, res) => {
     try {
         // Stop all forwarding rules before restart
-        forwardingManager.stopAllRules();
+        forwardingManager.stopAllConfigs();
         
         await telegramInstance.restart();
         const clientInfo = await telegramInstance.getClientInfo();
         
         // Restart forwarding rules after successful restart
         if (configManager.getAutoStartForwarding()) {
-            await forwardingManager.startAllActiveRules();
+            await forwardingManager.startAllActiveConfigs();
         }
         
         res.json({ 
@@ -341,7 +350,15 @@ router.post('/forwarding/create', async (req, res) => {
 
         // Start the rule if it's active and clients are ready
         if (isActive && telegramInstance.isReady() && whatsappInstance.isReady()) {
-            await forwardingManager.startForwardingRule(newRule);
+            const listeningConfig: ListeningConfig = {
+                id: newRule.id,
+                whatsappGroupId: newRule.whatsappGroupId,
+                telegramSources: newRule.telegramChannelIds,
+                isEnabled: newRule.isActive,
+                createdAt: newRule.createdAt,
+                lastModified: newRule.lastModified
+            };
+            await forwardingManager.startForwardingConfig(listeningConfig);
         }
 
         res.json({ 
@@ -361,14 +378,14 @@ router.post('/forwarding/create', async (req, res) => {
 /**
  * Get all forwarding rules
  */
-router.get('/forwarding/rules', (req, res) => {
+router.get('/forwarding/rules', async (req, res) => {
     try {
         const rules = configManager.getForwardingRules();
-        const activeSessions = forwardingManager.getActiveSessionsInfo();
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
         
         const rulesWithStatus = rules.map(rule => ({
             ...rule,
-            isRunning: activeSessions.some(session => session.ruleId === rule.id)
+            isRunning: activeSessions.some(session => session.configId === rule.id)
         }));
 
         res.json({ 
@@ -404,14 +421,30 @@ router.put('/forwarding/rules/:ruleId', async (req, res) => {
         }
 
         // Restart the rule if it's currently running
-        if (forwardingManager.isRuleActive(ruleId)) {
-            forwardingManager.stopForwardingRule(ruleId);
+        if (forwardingManager.isConfigActive(ruleId)) {
+            forwardingManager.stopForwardingConfig(ruleId);
             if (updatedRule.isActive && telegramInstance.isReady() && whatsappInstance.isReady()) {
-                await forwardingManager.startForwardingRule(updatedRule);
+                const listeningConfig: ListeningConfig = {
+                    id: updatedRule.id,
+                    whatsappGroupId: updatedRule.whatsappGroupId,
+                    telegramSources: updatedRule.telegramChannelIds,
+                    isEnabled: updatedRule.isActive,
+                    createdAt: updatedRule.createdAt,
+                    lastModified: updatedRule.lastModified
+                };
+                await forwardingManager.startForwardingConfig(listeningConfig);
             }
         } else if (updatedRule.isActive && telegramInstance.isReady() && whatsappInstance.isReady()) {
             // Start the rule if it wasn't running but is now active
-            await forwardingManager.startForwardingRule(updatedRule);
+            const listeningConfig: ListeningConfig = {
+                id: updatedRule.id,
+                whatsappGroupId: updatedRule.whatsappGroupId,
+                telegramSources: updatedRule.telegramChannelIds,
+                isEnabled: updatedRule.isActive,
+                createdAt: updatedRule.createdAt,
+                lastModified: updatedRule.lastModified
+            };
+            await forwardingManager.startForwardingConfig(listeningConfig);
         }
 
         res.json({ 
@@ -436,8 +469,8 @@ router.delete('/forwarding/rules/:ruleId', (req, res) => {
         const { ruleId } = req.params;
 
         // Stop the rule if it's currently running
-        if (forwardingManager.isRuleActive(ruleId)) {
-            forwardingManager.stopForwardingRule(ruleId);
+        if (forwardingManager.isConfigActive(ruleId)) {
+            forwardingManager.stopForwardingConfig(ruleId);
         }
 
         const deleted = configManager.deleteForwardingRule(ruleId);
@@ -484,7 +517,15 @@ router.post('/forwarding/rules/:ruleId/start', async (req, res) => {
             });
         }
 
-        const started = await forwardingManager.startForwardingRule(rule);
+        const listeningConfig: ListeningConfig = {
+            id: rule.id,
+            whatsappGroupId: rule.whatsappGroupId,
+            telegramSources: rule.telegramChannelIds,
+            isEnabled: rule.isActive,
+            createdAt: rule.createdAt,
+            lastModified: rule.lastModified
+        };
+        const started = await forwardingManager.startForwardingConfig(listeningConfig);
         
         res.json({ 
             success: started, 
@@ -506,7 +547,7 @@ router.post('/forwarding/rules/:ruleId/stop', (req, res) => {
     try {
         const { ruleId } = req.params;
         
-        const stopped = forwardingManager.stopForwardingRule(ruleId);
+        const stopped = forwardingManager.stopForwardingConfig(ruleId);
         
         res.json({ 
             success: stopped, 
@@ -563,7 +604,15 @@ router.post('/forwarding/start-all', async (req, res) => {
 
         for (const rule of activeRules) {
             console.log(`Starting rule: ${rule.name} (${rule.id})`);
-            const started = await forwardingManager.startForwardingRule(rule);
+            const listeningConfig: ListeningConfig = {
+                id: rule.id,
+                whatsappGroupId: rule.whatsappGroupId,
+                telegramSources: rule.telegramChannelIds,
+                isEnabled: rule.isActive,
+                createdAt: rule.createdAt,
+                lastModified: rule.lastModified
+            };
+            const started = await forwardingManager.startForwardingConfig(listeningConfig);
             if (started) {
                 successCount++;
                 console.log(`✅ Successfully started rule: ${rule.name}`);
@@ -580,7 +629,7 @@ router.post('/forwarding/start-all', async (req, res) => {
             configManager.setTelegramListeningChannels(allChannelIds);
         }
 
-        const activeSessions = forwardingManager.getActiveSessionsInfo();
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
         console.log(`Forwarding start complete. Success: ${successCount}/${activeRules.length}, Active sessions: ${activeSessions.length}`);
         
         if (successCount > 0) {
@@ -616,7 +665,7 @@ router.post('/forwarding/start-all', async (req, res) => {
  */
 router.post('/forwarding/stop-all', (req, res) => {
     try {
-        forwardingManager.stopAllRules();
+        forwardingManager.stopAllConfigs();
         
         res.json({ 
             success: true, 
@@ -634,9 +683,9 @@ router.post('/forwarding/stop-all', (req, res) => {
 /**
  * Get forwarding status
  */
-router.get('/forwarding/status', (req, res) => {
+router.get('/forwarding/status', async (req, res) => {
     try {
-        const activeSessions = forwardingManager.getActiveSessionsInfo();
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
         const activeRules = configManager.getActiveForwardingRules();
         
         res.json({ 
@@ -705,7 +754,15 @@ router.post('/setup-forwarding', async (req, res) => {
 
         // Start the rule if clients are ready
         if (telegramInstance.isReady() && whatsappInstance.isReady()) {
-            await forwardingManager.startForwardingRule(newRule);
+            const listeningConfig: ListeningConfig = {
+                id: newRule.id,
+                whatsappGroupId: newRule.whatsappGroupId,
+                telegramSources: newRule.telegramChannelIds,
+                isEnabled: newRule.isActive,
+                createdAt: newRule.createdAt,
+                lastModified: newRule.lastModified
+            };
+            await forwardingManager.startForwardingConfig(listeningConfig);
         }
 
         res.json({ 
@@ -743,9 +800,9 @@ router.post('/stop-forwarding', (req, res) => {
         // Handle legacy handlerId format
         if (handlerId && handlerId.startsWith('rule_')) {
             const extractedRuleId = handlerId.replace('rule_', '');
-            stopped = forwardingManager.stopForwardingRule(extractedRuleId);
+            stopped = forwardingManager.stopForwardingConfig(extractedRuleId);
         } else if (ruleId) {
-            stopped = forwardingManager.stopForwardingRule(ruleId);
+            stopped = forwardingManager.stopForwardingConfig(ruleId);
         } else {
             // Legacy handler - try to find in old messageListeners
             const handler = messageListeners.get(handlerId);
@@ -775,7 +832,7 @@ router.post('/stop-forwarding', (req, res) => {
 router.post('/reset', async (req, res) => {
     try {
         // Stop all forwarding rules before reset
-        forwardingManager.stopAllRules();
+        forwardingManager.stopAllConfigs();
         
         await telegramInstance.reset();
         
@@ -805,7 +862,7 @@ router.post('/reset', async (req, res) => {
 router.post('/disconnect', async (req, res) => {
     try {
         // Stop all forwarding rules before disconnect
-        forwardingManager.stopAllRules();
+        forwardingManager.stopAllConfigs();
         
         await telegramInstance.disconnect();
         
@@ -897,6 +954,385 @@ router.get('/auth-status', (req, res) => {
         });
     } catch (error) {
         console.error('Error getting auth status:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+// ============================================================================
+// LISTENING CONFIGURATION API ENDPOINTS
+// ============================================================================
+
+/**
+ * Create a new listening configuration
+ */
+router.post('/listening-config/create', async (req, res) => {
+    try {
+        const { whatsappGroupId, telegramSources, isEnabled = true } = req.body;
+        
+        if (!whatsappGroupId || !Array.isArray(telegramSources) || telegramSources.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'whatsappGroupId and telegramSources (non-empty array) are required' 
+            });
+        }
+
+        // Ensure telegram sources have proper format (with - prefix)
+        const formattedSources = telegramSources.map((id: string) => 
+            id.startsWith('-') ? id : `-${id}`
+        );
+
+        const config = {
+            whatsappGroupId,
+            telegramSources: formattedSources,
+            isEnabled
+        };
+
+        const result = await saveListeningConfig(config);
+        
+        if (!result) {
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Failed to create listening configuration' 
+            });
+        }
+
+        // Start the config if it's enabled and clients are ready
+        if (isEnabled && telegramInstance.isReady() && whatsappInstance.isReady()) {
+            await forwardingManager.startForwardingConfig(result);
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Listening configuration created successfully',
+            config: result
+        });
+    } catch (error) {
+        console.error('Error creating listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Get all listening configurations
+ */
+router.get('/listening-config/list', async (req, res) => {
+    try {
+        const configs = await getAllListeningConfigs();
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
+        
+        const configsWithStatus = configs.map((config: ListeningConfig) => ({
+            ...config,
+            isRunning: activeSessions.some(session => session.configId === config.id)
+        }));
+
+        res.json({ 
+            success: true, 
+            configs: configsWithStatus,
+            count: configs.length,
+            activeCount: activeSessions.length
+        });
+    } catch (error) {
+        console.error('Error getting listening configurations:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Get active listening configurations
+ */
+router.get('/listening-config/active', async (req, res) => {
+    try {
+        const activeConfigs = await getActiveListeningConfigs();
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
+        
+        const configsWithStatus = activeConfigs.map((config: ListeningConfig) => ({
+            ...config,
+            isRunning: activeSessions.some(session => session.configId === config.id)
+        }));
+
+        res.json({ 
+            success: true, 
+            configs: configsWithStatus,
+            count: activeConfigs.length
+        });
+    } catch (error) {
+        console.error('Error getting active listening configurations:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Get a specific listening configuration
+ */
+router.get('/listening-config/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const config = await getListeningConfig(id);
+        
+        if (!config) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Listening configuration not found' 
+            });
+        }
+
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
+        const configWithStatus = {
+            ...config,
+            isRunning: activeSessions.some(session => session.configId === config.id)
+        };
+
+        res.json({ 
+            success: true, 
+            config: configWithStatus
+        });
+    } catch (error) {
+        console.error('Error getting listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Update a listening configuration
+ */
+router.put('/listening-config/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { whatsappGroupId, telegramSources, isEnabled } = req.body;
+        
+        const updates: any = {};
+        if (whatsappGroupId !== undefined) updates.whatsappGroupId = whatsappGroupId;
+        if (telegramSources !== undefined) {
+            if (!Array.isArray(telegramSources)) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'telegramSources must be an array' 
+                });
+            }
+            // Format telegram sources
+            updates.telegramSources = telegramSources.map((id: string) => 
+                id.startsWith('-') ? id : `-${id}`
+            );
+        }
+        if (isEnabled !== undefined) updates.isEnabled = isEnabled;
+
+        const success = await updateListeningConfig(id, updates);
+        
+        if (!success) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Listening configuration not found or update failed' 
+            });
+        }
+
+        // Restart the config if it's currently running
+        if (forwardingManager.isConfigActive(id)) {
+            forwardingManager.stopForwardingConfig(id);
+            
+            if (isEnabled !== false) { // Only restart if not explicitly disabled
+                const updatedConfig = await getListeningConfig(id);
+                if (updatedConfig && updatedConfig.isEnabled) {
+                    await forwardingManager.startForwardingConfig(updatedConfig);
+                }
+            }
+        }
+
+        const updatedConfig = await getListeningConfig(id);
+        res.json({ 
+            success: true, 
+            message: 'Listening configuration updated successfully',
+            config: updatedConfig
+        });
+    } catch (error) {
+        console.error('Error updating listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Delete a listening configuration
+ */
+router.delete('/listening-config/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Stop the config if it's currently running
+        if (forwardingManager.isConfigActive(id)) {
+            forwardingManager.stopForwardingConfig(id);
+        }
+        
+        const success = await deleteListeningConfig(id);
+        
+        if (!success) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Listening configuration not found' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Listening configuration deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Enable a listening configuration
+ */
+router.post('/listening-config/:id/enable', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const success = await updateListeningConfig(id, { isEnabled: true });
+        
+        if (!success) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Listening configuration not found' 
+            });
+        }
+
+        // Start the config if clients are ready
+        if (telegramInstance.isReady() && whatsappInstance.isReady()) {
+            const config = await getListeningConfig(id);
+            if (config) {
+                await forwardingManager.startForwardingConfig(config);
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Listening configuration enabled successfully'
+        });
+    } catch (error) {
+        console.error('Error enabling listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Disable a listening configuration
+ */
+router.post('/listening-config/:id/disable', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Stop the config if it's currently running
+        if (forwardingManager.isConfigActive(id)) {
+            forwardingManager.stopForwardingConfig(id);
+        }
+        
+        const success = await updateListeningConfig(id, { isEnabled: false });
+        
+        if (!success) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Listening configuration not found' 
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Listening configuration disabled successfully'
+        });
+    } catch (error) {
+        console.error('Error disabling listening configuration:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Start all active configurations
+ */
+router.post('/listening-config/start-all', async (req, res) => {
+    try {
+        if (!telegramInstance.isReady() || !whatsappInstance.isReady()) {
+            return res.status(503).json({ 
+                success: false, 
+                error: 'Telegram or WhatsApp client not ready' 
+            });
+        }
+
+        await forwardingManager.startAllActiveConfigs();
+
+        res.json({ 
+            success: true, 
+            message: 'All active listening configurations started successfully'
+        });
+    } catch (error) {
+        console.error('Error starting all configurations:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Stop all active configurations
+ */
+router.post('/listening-config/stop-all', async (req, res) => {
+    try {
+        forwardingManager.stopAllConfigs();
+
+        res.json({ 
+            success: true, 
+            message: 'All listening configurations stopped successfully'
+        });
+    } catch (error) {
+        console.error('Error stopping all configurations:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+    }
+});
+
+/**
+ * Get active sessions status
+ */
+router.get('/listening-config/sessions/status', async (req, res) => {
+    try {
+        const activeSessions = await forwardingManager.getActiveSessionsInfo();
+
+        res.json({ 
+            success: true, 
+            sessions: activeSessions,
+            count: activeSessions.length
+        });
+    } catch (error) {
+        console.error('Error getting session status:', error);
         res.status(500).json({ 
             success: false, 
             error: error instanceof Error ? error.message : 'Unknown error' 

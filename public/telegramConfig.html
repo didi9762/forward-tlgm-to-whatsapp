@@ -413,6 +413,7 @@
                         showAlert('success', '✅ Stopped listening to channel');
                     } else {
                         showAlert('error', '❌ Failed to stop listening: ' + data.error);
+                        return; // Don't re-render if the API call failed
                     }
                 } else {
                     // Start listening
@@ -430,15 +431,17 @@
                         showAlert('success', '✅ Started listening to channel');
                     } else {
                         showAlert('error', '❌ Failed to start listening: ' + data.error);
+                        return; // Don't re-render if the API call failed
                     }
                 }
 
                 // Re-render channels and listening list
-                renderChannels(channels.filter(channel => {
-                    const filter = document.getElementById('channelFilter').value.toLowerCase();
-                    return channel.title.toLowerCase().includes(filter) ||
-                        (channel.username && channel.username.toLowerCase().includes(filter));
-                }));
+                const filter = document.getElementById('channelFilter').value.toLowerCase();
+                const filteredChannels = channels.filter(channel =>
+                    channel.title.toLowerCase().includes(filter) ||
+                    (channel.username && channel.username.toLowerCase().includes(filter))
+                );
+                renderChannels(filteredChannels);
                 renderListeningChannels();
 
             } catch (error) {

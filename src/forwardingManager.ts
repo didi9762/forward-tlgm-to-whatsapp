@@ -1,11 +1,16 @@
 import { TelegramInstance, TelegramMessage } from './telegramInstance';
 import { WhatsAppInstance } from './whatsappInstance';
-import { configManager, ForwardingRule } from './configManager';
+import { ListeningConfig } from './db';
 import fs from 'fs';
 import path from 'path';
 
+const { 
+  getListeningConfig, 
+  getActiveListeningConfigs 
+} = require('./db');
+
 export interface ForwardingSession {
-    ruleId: string;
+    configId: string;
     handlerId: string;
     messageHandler: (message: TelegramMessage) => void;
     isActive: boolean;
@@ -22,18 +27,18 @@ class ForwardingManager {
     }
 
     /**
-     * Start forwarding based on a specific rule
+     * Start forwarding based on a specific config
      */
-    public async startForwardingRule(rule: ForwardingRule): Promise<boolean> {
+    public async startForwardingConfig(config: ListeningConfig): Promise<boolean> {
         try {
-            // Check if rule is already active
-            if (this.activeSessions.has(rule.id)) {
-                console.log(`Forwarding rule ${rule.name} is already active`);
+            // Check if config is already active
+            if (this.activeSessions.has(config.id)) {
+                console.log(`Forwarding config ${config.id} is already active`);
                 return true;
             }
 
-            // CRITICAL FIX: Stop any existing rule first to prevent handler accumulation
-            this.stopForwardingRule(rule.id);
+            // CRITICAL FIX: Stop any existing config first to prevent handler accumulation
+            this.stopForwardingConfig(config.id);
 
             // Check if Telegram client is ready
             if (!this.telegramInstance.isReady()) {
@@ -47,25 +52,25 @@ class ForwardingManager {
                 return false;
             }
 
-            // Start listening to the channels in this rule
-            await this.telegramInstance.startListening(rule.telegramChannelIds);
+            // Start listening to the channels in this config
+            await this.telegramInstance.startListening(config.telegramSources);
 
-            // Create message handler for this rule
+            // Create message handler for this config
             const messageHandler = async (message: TelegramMessage) => {
                 console.log(`ForwardingManager: Checking message from channel ${message.channelId}`);
-                console.log(`ForwardingManager: Rule channels:`, rule.telegramChannelIds);
+                console.log(`ForwardingManager: Config sources:`, config.telegramSources);
                 
-                // Check if this message is from one of the channels in this rule
-                if (rule.telegramChannelIds.includes(message.channelId) || rule.telegramChannelIds.includes(message.channelId.replace('-100', '-'))) {
-                    console.log(`ForwardingManager: Message matches rule ${rule.name}, forwarding to WhatsApp`);
+                // Check if this message is from one of the sources in this config
+                if (config.telegramSources.includes(message.channelId) || config.telegramSources.includes(message.channelId.replace('-100', '-'))) {
+                    console.log(`ForwardingManager: Message matches config ${config.id}, forwarding to WhatsApp`);
                     try {
-                        await this.forwardMessageToWhatsApp(message, rule);
+                        await this.forwardMessageToWhatsApp(message, config);
                         console.log(`ForwardingManager: Message forwarded successfully`);
                     } catch (error) {
-                        console.error(`Error forwarding message from rule ${rule.name}:`, error);
+                        console.error(`Error forwarding message from config ${config.id}:`, error);
                     }
                 } else {
-                    console.log(`ForwardingManager: Message does not match rule ${rule.name}`);
+                    console.log(`ForwardingManager: Message does not match config ${config.id}`);
                 }
             };
 
@@ -74,31 +79,31 @@ class ForwardingManager {
 
             // Create session record
             const session: ForwardingSession = {
-                ruleId: rule.id,
-                handlerId: `handler_${rule.id}_${Date.now()}`,
+                configId: config.id,
+                handlerId: `handler_${config.id}_${Date.now()}`,
                 messageHandler,
                 isActive: true
             };
 
-            this.activeSessions.set(rule.id, session);
+            this.activeSessions.set(config.id, session);
 
-            console.log(`Started forwarding rule: ${rule.name}`);
+            console.log(`Started forwarding config: ${config.id}`);
             return true;
 
         } catch (error) {
-            console.error(`Error starting forwarding rule ${rule.name}:`, error);
+            console.error(`Error starting forwarding config ${config.id}:`, error);
             return false;
         }
     }
 
     /**
-     * Stop forwarding for a specific rule
+     * Stop forwarding for a specific config
      */
-    public stopForwardingRule(ruleId: string): boolean {
+    public stopForwardingConfig(configId: string): boolean {
         try {
-            const session = this.activeSessions.get(ruleId);
+            const session = this.activeSessions.get(configId);
             if (!session) {
-                console.log(`No active session found for rule ${ruleId}`);
+                console.log(`No active session found for config ${configId}`);
                 return false;
             }
 
@@ -106,69 +111,70 @@ class ForwardingManager {
             this.telegramInstance.removeMessageHandler(session.messageHandler);
 
             // Remove session
-            this.activeSessions.delete(ruleId);
+            this.activeSessions.delete(configId);
 
-            console.log(`Stopped forwarding rule: ${ruleId}`);
+            console.log(`Stopped forwarding config: ${configId}`);
             return true;
 
         } catch (error) {
-            console.error(`Error stopping forwarding rule ${ruleId}:`, error);
+            console.error(`Error stopping forwarding config ${configId}:`, error);
             return false;
         }
     }
 
     /**
-     * Start all active forwarding rules
+     * Start all active forwarding configs
      */
-    public async startAllActiveRules(): Promise<void> {
-        const activeRules = configManager.getActiveForwardingRules();
+    public async startAllActiveConfigs(): Promise<void> {
+        const activeConfigs = await getActiveListeningConfigs();
         
-        console.log(`Starting ${activeRules.length} active forwarding rules...`);
+        console.log(`Starting ${activeConfigs.length} active forwarding configs...`);
 
-        for (const rule of activeRules) {
-            await this.startForwardingRule(rule);
+        for (const config of activeConfigs) {
+            await this.startForwardingConfig(config);
         }
 
-        // Update Telegram listening channels based on all active rules
-        const allChannelIds = configManager.getAllActiveChannelIds();
+        // Update Telegram listening channels based on all active configs
+        const allChannelIds = this.getAllActiveTelegramSources(activeConfigs);
         if (allChannelIds.length > 0) {
-            configManager.setTelegramListeningChannels(allChannelIds);
+            console.log(`Updated Telegram listening to ${allChannelIds.length} sources`);
         }
     }
 
     /**
-     * Stop all active forwarding rules
+     * Stop all active forwarding configs
      */
-    public stopAllRules(): void {
-        console.log('Stopping all forwarding rules...');
+    public stopAllConfigs(): void {
+        console.log('Stopping all forwarding configs...');
         
-        for (const [ruleId] of this.activeSessions) {
-            this.stopForwardingRule(ruleId);
+        for (const [configId] of this.activeSessions) {
+            this.stopForwardingConfig(configId);
         }
 
         this.activeSessions.clear();
     }
 
     /**
-     * Restart all active forwarding rules
+     * Restart all active forwarding configs
      */
-    public async restartAllRules(): Promise<void> {
-        this.stopAllRules();
-        await this.startAllActiveRules();
+    public async restartAllConfigs(): Promise<void> {
+        this.stopAllConfigs();
+        await this.startAllActiveConfigs();
     }
 
     /**
      * Get active sessions info
      */
-    public getActiveSessionsInfo(): Array<{ruleId: string, handlerId: string, ruleName: string}> {
-        const result: Array<{ruleId: string, handlerId: string, ruleName: string}> = [];
+    public async getActiveSessionsInfo(): Promise<Array<{configId: string, handlerId: string, whatsappGroupId: string, telegramSourcesCount: number}>> {
+        const result: Array<{configId: string, handlerId: string, whatsappGroupId: string, telegramSourcesCount: number}> = [];
         
-        for (const [ruleId, session] of this.activeSessions) {
-            const rule = configManager.getForwardingRule(ruleId);
+        for (const [configId, session] of this.activeSessions) {
+            const config = await getListeningConfig(configId);
             result.push({
-                ruleId,
+                configId,
                 handlerId: session.handlerId,
-                ruleName: rule?.name || 'Unknown'
+                whatsappGroupId: config?.whatsappGroupId || 'Unknown',
+                telegramSourcesCount: config?.telegramSources.length || 0
             });
         }
 
@@ -176,16 +182,31 @@ class ForwardingManager {
     }
 
     /**
-     * Check if a rule is currently active
+     * Check if a config is currently active
      */
-    public isRuleActive(ruleId: string): boolean {
-        return this.activeSessions.has(ruleId);
+    public isConfigActive(configId: string): boolean {
+        return this.activeSessions.has(configId);
+    }
+
+    /**
+     * Get all active Telegram sources from configs
+     */
+    private getAllActiveTelegramSources(configs: ListeningConfig[]): string[] {
+        const allSources = new Set<string>();
+        
+        configs.forEach(config => {
+            config.telegramSources.forEach(source => {
+                allSources.add(source);
+            });
+        });
+        
+        return Array.from(allSources);
     }
 
     /**
      * Forward a Telegram message to WhatsApp
      */
-    private async forwardMessageToWhatsApp(message: TelegramMessage, rule: ForwardingRule): Promise<void> {
+    private async forwardMessageToWhatsApp(message: TelegramMessage, config: ListeningConfig): Promise<void> {
         try {
             // Format the message for WhatsApp
             let formattedMessage = `📢 *${message.channelTitle}*\n`;
@@ -230,7 +251,7 @@ class ForwardingManager {
                     
                     // Send media to WhatsApp
                     await this.whatsappInstance.sendMediaToGroup(
-                        rule.whatsappGroupId, 
+                        config.whatsappGroupId, 
                         tempFilePath, 
                         formattedMessage, // Use formatted message as caption
                         whatsappMediaType
@@ -243,7 +264,7 @@ class ForwardingManager {
                     console.error('Error handling media file:', mediaError);
                     // Fallback to text message mentioning media
                     formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (failed to forward)`;
-                    await this.whatsappInstance.sendMessageToGroup(rule.whatsappGroupId, formattedMessage);
+                    await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
                 }
             } else {
                 // Text-only message or media without buffer
@@ -252,10 +273,10 @@ class ForwardingManager {
                 }
                 
                 // Send text message to WhatsApp group
-                await this.whatsappInstance.sendMessageToGroup(rule.whatsappGroupId, formattedMessage);
+                await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
             }
             
-            console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via rule: ${rule.name}`);
+            console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via config: ${config.id}`);
 
         } catch (error) {
             console.error('Error forwarding message to WhatsApp:', error);

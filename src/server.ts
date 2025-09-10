@@ -91,6 +91,7 @@ console.log(PORT)
 const server = app.listen(Number(PORT), process.env.HOST || '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`API endpoints available at http://localhost:${PORT}/api/whatsapp`);
+    console.log(`Listening config API available at http://localhost:${PORT}/telegram/listening-config/`);
     
     // Initialize forwarding after server starts
     initializeForwarding();
