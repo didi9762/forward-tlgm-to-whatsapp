@@ -50,6 +50,13 @@ export class TelegramInstance {
     private passwordResolver: ((password: string) => void) | null = null;
     // Add this property to store event handler reference
     private currentEventHandler: any = null;
+    
+    // Add keep-alive properties
+    private keepAliveInterval: NodeJS.Timeout | null = null;
+    private connectionCheckInterval: NodeJS.Timeout | null = null;
+    private isKeepAliveActive: boolean = false;
+    private reconnectAttempts: number = 0;
+    private maxReconnectAttempts: number = 5;
 
     constructor() {
         this.sessionFilePath = path.join(process.cwd(), 'telegram_session.txt');
@@ -141,6 +148,10 @@ export class TelegramInstance {
             // Auto-start listening to configured channels
             if (this.listeningChannels.size > 0) {
                 console.log(`Auto-starting listening to ${this.listeningChannels.size} configured channels`);
+                // Start keep-alive if there are forwarding rules
+                if (this.hasActiveForwardingRules()) {
+                    this.startKeepAlive();
+                }
             }
         } catch (error) {
             console.error('Error initializing Telegram client:', error);
@@ -162,8 +173,16 @@ export class TelegramInstance {
 
             console.log('Restarting Telegram client...');
             
+            // Stop keep-alive during restart
+            const wasKeepAliveActive = this.isKeepAliveActive;
+            this.stopKeepAlive();
+
             if (this.isInitialized) {
-                await this.client.disconnect();
+                try {
+                    await this.client.disconnect();
+                } catch (error: any) {
+                    console.log('Error disconnecting during restart (expected):', error.message);
+                }
                 this.isInitialized = false;
             }
 
@@ -185,18 +204,31 @@ export class TelegramInstance {
                     useWSS: true,
                 }
             );
+            
             this.loadListeningChannelsFromConfig();
             this.setupEventHandlers();
             
-            // Connect using the existing session
+            // Connect using the existing session with timeout
             console.log('Connecting with saved session...');
-            await this.client.connect();
+            await Promise.race([
+                this.client.connect(),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Connection timeout')), 30000)
+                )
+            ]);
+            
             this.isInitialized = true;
+            
+            // Restart keep-alive if it was active
+            if (wasKeepAliveActive && this.hasActiveForwardingRules()) {
+                this.startKeepAlive();
+            }
             
             console.log('Telegram client restarted successfully with session');
             return true;
         } catch (error) {
             console.error('Error restarting Telegram client:', error);
+            this.isInitialized = false;
             return false;
         }
     }
@@ -207,6 +239,9 @@ export class TelegramInstance {
     public async reset(): Promise<void> {
         try {
             console.log('Resetting Telegram client...');
+            
+            // Stop keep-alive first
+            this.stopKeepAlive();
             
             // Disconnect if connected
             if (this.isInitialized) {
@@ -300,6 +335,11 @@ export class TelegramInstance {
                 await this.saveListeningChannelsToConfig();
             }
             
+            // Start keep-alive if we now have forwarding rules and it's not already active
+            if (this.hasActiveForwardingRules() && !this.isKeepAliveActive) {
+                this.startKeepAlive();
+            }
+            
             console.log(`Started listening to ${channelIds.length} channels:`, channelIds);
         } catch (error) {
             console.error('Error starting to listen to channels:', error);
@@ -320,6 +360,11 @@ export class TelegramInstance {
             this.saveListeningChannelsToConfig();
         }
         
+        // Stop keep-alive if no more forwarding rules
+        if (!this.hasActiveForwardingRules() && this.isKeepAliveActive) {
+            this.stopKeepAlive();
+        }
+        
         console.log(`Stopped listening to ${channelIds.length} channels:`, channelIds);
     }
 
@@ -337,6 +382,11 @@ export class TelegramInstance {
      */
     public onMessage(handler: (message: TelegramMessage) => void): void {
         this.messageHandlers.push(handler);
+        
+        // Start keep-alive if we now have forwarding rules and it's not already active
+        if (this.hasActiveForwardingRules() && !this.isKeepAliveActive) {
+            this.startKeepAlive();
+        }
     }
 
     /**
@@ -347,6 +397,11 @@ export class TelegramInstance {
         const index = this.messageHandlers.indexOf(handler);
         if (index > -1) {
             this.messageHandlers.splice(index, 1);
+        }
+        
+        // Stop keep-alive if no more forwarding rules
+        if (!this.hasActiveForwardingRules() && this.isKeepAliveActive) {
+            this.stopKeepAlive();
         }
     }
 
@@ -379,6 +434,9 @@ export class TelegramInstance {
      */
     public async disconnect(): Promise<void> {
         try {
+            // Stop keep-alive first
+            this.stopKeepAlive();
+            
             if (this.client) {
                 await this.client.disconnect();
             }
@@ -707,6 +765,153 @@ export class TelegramInstance {
             console.error('Error downloading media:', error);
             return null;
         }
+    }
+
+    /**
+     * Start keep-alive mechanism to maintain connection
+     */
+    public startKeepAlive(): void {
+        if (this.isKeepAliveActive) {
+            console.log('Keep-alive is already active');
+            return;
+        }
+
+        this.isKeepAliveActive = true;
+        console.log('Starting Telegram keep-alive mechanism...');
+
+        // Send a ping every 5 minutes to keep connection alive
+        this.keepAliveInterval = setInterval(async () => {
+            try {
+                if (this.isInitialized && this.client && this.hasActiveForwardingRules()) {
+                    console.log('Sending keep-alive ping to Telegram...');
+                    await this.client.invoke(new (require('telegram/tl/functions/ping').PingRequest)({
+                        pingId: BigInt(Date.now())
+                    }));
+                    console.log('Keep-alive ping sent successfully');
+                    this.reconnectAttempts = 0; // Reset reconnect attempts on successful ping
+                }
+            } catch (error) {
+                console.error('Keep-alive ping failed:', error);
+                // Don't immediately reconnect on ping failure, let connection check handle it
+            }
+        }, 5 * 60 * 1000); // 5 minutes
+
+        // Check connection status every minute
+        this.connectionCheckInterval = setInterval(async () => {
+            try {
+                if (this.hasActiveForwardingRules() && !this.checkConnection()) {
+                    console.log('Connection lost, attempting to reconnect...');
+                    await this.handleReconnection();
+                }
+            } catch (error) {
+                console.error('Connection check failed:', error);
+            }
+        }, 60 * 1000); // 1 minute
+
+        console.log('Keep-alive mechanism started');
+    }
+
+    /**
+     * Stop keep-alive mechanism
+     */
+    public stopKeepAlive(): void {
+        if (!this.isKeepAliveActive) {
+            return;
+        }
+
+        this.isKeepAliveActive = false;
+        
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
+        }
+
+        if (this.connectionCheckInterval) {
+            clearInterval(this.connectionCheckInterval);
+            this.connectionCheckInterval = null;
+        }
+
+        console.log('Keep-alive mechanism stopped');
+    }
+
+    /**
+     * Check if there are active forwarding rules that require the connection
+     */
+    private hasActiveForwardingRules(): boolean {
+        // Check if there are listening channels configured
+        if (this.listeningChannels.size === 0) {
+            return false;
+        }
+
+        // Check if there are message handlers (indicating active forwarding)
+        if (this.messageHandlers.length === 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if connection is still alive
+     */
+    private checkConnection(): boolean {
+        try {
+            return this.isInitialized && this.client && this.client?.connected!;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Handle reconnection logic
+     */
+    private async handleReconnection(): Promise<void> {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error(`Max reconnection attempts (${this.maxReconnectAttempts}) reached. Stopping reconnection attempts.`);
+            this.stopKeepAlive();
+            return;
+        }
+
+        this.reconnectAttempts++;
+        console.log(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+
+        try {
+            // Try to restart with existing session
+            const success = await this.restart();
+            if (success) {
+                console.log('Reconnection successful');
+                this.reconnectAttempts = 0;
+            } else {
+                console.error('Reconnection failed');
+                // Wait before next attempt (exponential backoff)
+                const delay = Math.min(30000, 5000 * Math.pow(2, this.reconnectAttempts - 1));
+                console.log(`Waiting ${delay}ms before next reconnection attempt...`);
+                setTimeout(() => {
+                    if (this.hasActiveForwardingRules()) {
+                        this.handleReconnection();
+                    }
+                }, delay);
+            }
+        } catch (error) {
+            console.error('Error during reconnection:', error);
+        }
+    }
+
+    /**
+     * Get keep-alive status
+     */
+    public getKeepAliveStatus(): {
+        isActive: boolean;
+        hasForwardingRules: boolean;
+        reconnectAttempts: number;
+        isConnected: boolean;
+    } {
+        return {
+            isActive: this.isKeepAliveActive,
+            hasForwardingRules: this.hasActiveForwardingRules(),
+            reconnectAttempts: this.reconnectAttempts,
+            isConnected: this.checkConnection()
+        };
     }
 }
 
