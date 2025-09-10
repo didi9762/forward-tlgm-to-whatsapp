@@ -507,7 +507,7 @@ export class TelegramInstance {
                 
                 if (!message) return;
                 const activeConfigs = await getActiveListeningConfigs();
-                this.listeningChannels = new Set(activeConfigs[0]?.telegramSources);
+                this.listeningChannels = new Set(activeConfigs[0]?.telegramChannelIds);
 
 
                 // Fix: Handle BigInt-like Integer object properly

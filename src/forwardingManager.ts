@@ -49,16 +49,16 @@ class ForwardingManager {
             }
 
             // Start listening to the channels in this config
-            await this.telegramInstance.startListening(config.telegramSources);
+            await this.telegramInstance.startListening(config.telegramChannelIds);
 
             // Create message handler for this config
             const messageHandler = async (message: TelegramMessage) => {
                 console.log(`ForwardingManager: Checking message from channel ${message.channelId}`);
-                console.log(`ForwardingManager: Config sources:`, config.telegramSources);
+                console.log(`ForwardingManager: Config sources:`, config.telegramChannelIds);
                 
                 // Check if this message is from one of the sources in this config
                 const fixedId = message.channelId.startsWith('-100')?message.channelId.replace('-100', ''):message.channelId.replace('-', '');
-                if (config.telegramSources.includes(fixedId)) {
+                if (config.telegramChannelIds.includes(fixedId)) {
                     console.log(`ForwardingManager: Message matches config ${config.id}, forwarding to WhatsApp`);
                     try {
                         await this.forwardMessageToWhatsApp(message, config);
@@ -171,7 +171,7 @@ class ForwardingManager {
                 configId,
                 handlerId: session.handlerId,
                 whatsappGroupId: config?.whatsappGroupId || 'Unknown',
-                telegramSourcesCount: config?.telegramSources.length || 0
+                telegramSourcesCount: config?.telegramChannelIds.length || 0
             });
         }
 
@@ -192,7 +192,7 @@ class ForwardingManager {
         const allSources = new Set<string>();
         
         configs.forEach(config => {
-            config.telegramSources.forEach(source => {
+            config.telegramChannelIds.forEach(source => {
                 allSources.add(source);
             });
         });

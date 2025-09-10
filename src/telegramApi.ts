@@ -39,7 +39,7 @@ async function startForwarding() {
     const listeningConfig: ListeningConfig = {
         id: 'main_config',
         whatsappGroupId: config.whatsappGroupId,
-        telegramSources: config.telegramChannelIds,
+        telegramChannelIds: config.telegramChannelIds,
         isActive: config.isActive,
         createdAt: config.createdAt,
         lastModified: config.lastModified

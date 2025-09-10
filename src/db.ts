@@ -339,7 +339,7 @@ async function readMany(collection: string, query: any): Promise<any[]> {
 export interface ListeningConfig {
   id: string;
   whatsappGroupId: string;
-  telegramSources: string[];
+  telegramChannelIds: string[];
   isActive: boolean;
   createdAt: Date;
   lastModified: Date;
