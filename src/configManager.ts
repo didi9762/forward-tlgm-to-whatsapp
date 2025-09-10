@@ -182,18 +182,16 @@ class ConfigManager {
      * Set Telegram channel IDs
      */
     public async setTelegramChannelIds(channelIds: string[]): Promise<void> {
-        const formattedIds = channelIds.map(id => id.startsWith('-') ? id : `-${id}`);
-        await this.updateConfig({ telegramChannelIds: formattedIds });
+        await this.updateConfig({ telegramChannelIds: channelIds });
     }
 
     /**
      * Add Telegram channel ID
      */
     public async addTelegramChannelId(channelId: string): Promise<void> {
-        const formattedId = channelId.startsWith('-') ? channelId : `-${channelId}`;
         const currentIds = this.getTelegramChannelIds();
-        if (!currentIds.includes(formattedId)) {
-            currentIds.push(formattedId);
+        if (!currentIds.includes(channelId)) {
+            currentIds.push(channelId);
             await this.setTelegramChannelIds(currentIds);
         }
     }

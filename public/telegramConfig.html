@@ -404,7 +404,8 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    listeningChannels = data.config.telegramChannelIds;
+                    currentConfig = data.config;
+                    listeningChannels = data.config.telegramChannelIds || [];
                     showAlert('success', isListening ? '✅ Stopped listening to channel' : '✅ Started listening to channel');
                     
                     // Re-render channels and listening list
@@ -427,11 +428,11 @@
         // Load listening channels
         async function loadListeningChannels() {
             try {
-                const response = await fetch('/telegram/listening-channels');
+                const response = await fetch('/config');
                 const data = await response.json();
 
-                if (data.success && data.channels) {
-                    listeningChannels = data.channels || [];
+                if (data.success && data.config.telegramChannelIds) {
+                    listeningChannels = data.config.telegramChannelIds || [];
                     renderListeningChannels();
                 }
             } catch (error) {
@@ -547,7 +548,7 @@
                 return;
             }
 
-            if (listeningChannels.length === 0) {
+            if (!currentConfig.telegramChannelIds || currentConfig.telegramChannelIds.length === 0) {
                 showAlert('error', '❌ Please select channels to listen to first');
                 return;
             }
@@ -575,6 +576,8 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    currentConfig = data.config;
+                    
                     // Try to start forwarding
                     const startResponse = await fetch('/telegram/start-forwarding', {
                         method: 'POST'
@@ -613,6 +616,23 @@
             stopBtn.innerHTML = '<div class="loading"></div> Stopping...';
 
             try {
+                // Set config to inactive
+                const configResponse = await fetch('/telegram/update-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        isActive: false
+                    })
+                });
+
+                const configData = await configResponse.json();
+                if (configData.success) {
+                    currentConfig = configData.config;
+                }
+
+                // Stop forwarding
                 const response = await fetch('/telegram/stop-forwarding', {
                     method: 'POST'
                 });

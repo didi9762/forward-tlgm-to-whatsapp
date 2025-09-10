@@ -61,7 +61,8 @@ class ForwardingManager {
                 console.log(`ForwardingManager: Config sources:`, config.telegramSources);
                 
                 // Check if this message is from one of the sources in this config
-                if (config.telegramSources.includes(message.channelId) || config.telegramSources.includes(message.channelId.replace('-100', '-'))) {
+                const fixedId = message.channelId.startsWith('-100')?message.channelId.replace('-100', ''):message.channelId.replace('-', '');
+                if (config.telegramSources.includes(fixedId)) {
                     console.log(`ForwardingManager: Message matches config ${config.id}, forwarding to WhatsApp`);
                     try {
                         await this.forwardMessageToWhatsApp(message, config);

@@ -298,8 +298,8 @@
                     groupSelect.disabled = false;
                     
                     // Select current configured group
-                    if (currentConfig.groupToSend) {
-                        groupSelect.value = currentConfig.groupToSend;
+                    if (currentConfig.whatsappGroupId) {
+                        groupSelect.value = currentConfig.whatsappGroupId;
                         selectGroup();
                     }
                 } else {
@@ -333,8 +333,8 @@
                     });
                     groupSelect.disabled = false;
                     // Select current configured group
-                    if (currentConfig.groupToSend) {
-                        groupSelect.value = currentConfig.groupToSend;
+                    if (currentConfig.whatsappGroupId) {
+                        groupSelect.value = currentConfig.whatsappGroupId;
                         selectGroup();
                     }
                     showAlert('success', '✅ Groups reloaded successfully!');

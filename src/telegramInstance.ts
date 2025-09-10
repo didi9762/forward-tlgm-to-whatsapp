@@ -429,7 +429,8 @@ export class TelegramInstance {
 
                 // Fix: Handle BigInt-like Integer object properly
                 const chatId = message.chatId?.value?.toString() || message.chatId?.toString();
-                if (!chatId || (!this.listeningChannels.has(chatId) && !this.listeningChannels.has(chatId.replace('-100', '-')))) return;
+                const fixedId = chatId.startsWith('-100')?chatId.replace('-100', ''):chatId.replace('-', '');
+                if (!chatId || !this.listeningChannels.has(fixedId)) return;
                 console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
 
                 let titel = ''
@@ -447,7 +448,7 @@ export class TelegramInstance {
                     date: new Date(message.date * 1000),
                     senderId: message.senderId?.value?.toString() || message.senderId?.toString(),
                     senderName: await this.getSenderName(message),
-                    channelId: chatId,
+                    channelId: fixedId,
                     channelTitle: titel || message.chatTitle || 'Unknown', // Use the fetched title first
                     isForwarded: !!message.fwdFrom,
                     forwardedFrom: message.fwdFrom?.fromName || message.fwdFrom?.fromId?.value?.toString() || message.fwdFrom?.fromId?.toString(),
