@@ -3,11 +3,7 @@ import { WhatsAppInstance } from './whatsappInstance';
 import { ListeningConfig } from './db';
 import fs from 'fs';
 import path from 'path';
-
-const { 
-  getListeningConfig, 
-  getActiveListeningConfigs 
-} = require('./db');
+import { getListeningConfig, getActiveListeningConfigs } from './db';
 
 export interface ForwardingSession {
     configId: string;

@@ -348,7 +348,7 @@ export interface ListeningConfig {
 async function saveListeningConfig(config: Omit<ListeningConfig, 'id' | 'createdAt' | 'lastModified'>): Promise<ListeningConfig | false> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
@@ -376,7 +376,7 @@ async function saveListeningConfig(config: Omit<ListeningConfig, 'id' | 'created
 async function updateListeningConfig(id: string, updates: Partial<Omit<ListeningConfig, 'id' | 'createdAt'>>): Promise<boolean> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
@@ -402,7 +402,7 @@ async function updateListeningConfig(id: string, updates: Partial<Omit<Listening
 async function getListeningConfig(id: string): Promise<ListeningConfig | null> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return null;
     
     conn = dbResult.conn;
@@ -423,7 +423,7 @@ async function getListeningConfig(id: string): Promise<ListeningConfig | null> {
 async function getAllListeningConfigs(): Promise<ListeningConfig[]> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return [];
     
     conn = dbResult.conn;
@@ -444,7 +444,7 @@ async function getAllListeningConfigs(): Promise<ListeningConfig[]> {
 async function getActiveListeningConfigs(): Promise<ListeningConfig[]> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return [];
     
     conn = dbResult.conn;
@@ -465,7 +465,7 @@ async function getActiveListeningConfigs(): Promise<ListeningConfig[]> {
 async function deleteListeningConfig(id: string): Promise<boolean> {
   let conn: any = null;
   try {
-    const dbResult = await database('listening_configs');
+    const dbResult = await database('app_config');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
