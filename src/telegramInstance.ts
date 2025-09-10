@@ -1,6 +1,8 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { NewMessage } from 'telegram/events';
+import { Api } from 'telegram/tl';
+import { helpers } from 'telegram';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -807,8 +809,8 @@ export class TelegramInstance {
             try {
                 if (this.isInitialized && this.client && this.hasActiveForwardingRules()) {
                     console.log('Sending keep-alive ping to Telegram...');
-                    await this.client.invoke(new (require('telegram/tl/functions/ping').PingRequest)({
-                        pingId: BigInt(Date.now())
+                    await this.client.invoke(new Api.Ping({
+                        pingId: helpers.generateRandomBigInt();
                     }));
                     console.log('Keep-alive ping sent successfully');
                     this.reconnectAttempts = 0; // Reset reconnect attempts on successful ping
