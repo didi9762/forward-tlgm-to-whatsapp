@@ -83,7 +83,7 @@ export class TelegramInstance {
      * Load listening channels from config
      */
     private loadListeningChannelsFromConfig(): void {
-        const configChannels = configManager.getTelegramListeningChannels();
+        const configChannels = configManager.getTelegramChannelIds();
         this.listeningChannels = new Set(configChannels);
         if (configChannels.length > 0) {
             console.log(`Loaded ${configChannels.length} listening channels from config:`, configChannels);
@@ -93,14 +93,15 @@ export class TelegramInstance {
     /**
      * Save listening channels to config
      */
-    private saveListeningChannelsToConfig(): void {
-        const channelArray = Array.from(this.listeningChannels);
-        configManager.setTelegramListeningChannels(channelArray);
-        
-        // Sync the main forwarding rule with current listening channels
-        configManager.syncMainForwardingRule();
-        
-        console.log(`Saved ${channelArray.length} listening channels to config and synced forwarding rule`);
+    private async saveListeningChannelsToConfig(): Promise<void> {
+        try {
+            const channelArray = Array.from(this.listeningChannels);
+            await configManager.setTelegramChannelIds(channelArray);
+            
+            console.log(`Saved ${channelArray.length} listening channels to config`);
+        } catch (error) {
+            console.error('Error saving listening channels to config:', error);
+        }
     }
 
     /**
@@ -282,7 +283,7 @@ export class TelegramInstance {
             
             // Save to config if requested
             if (saveToConfig) {
-                this.saveListeningChannelsToConfig();
+                await this.saveListeningChannelsToConfig();
             }
             
             console.log(`Started listening to ${channelIds.length} channels:`, channelIds);

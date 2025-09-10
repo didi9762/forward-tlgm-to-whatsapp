@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import { configManager } from './configManager';
-import { database } from './db';
 
 interface OldAppConfig {
     groupToSend: string;
@@ -26,24 +25,19 @@ async function migrateConfigFromFileToDatabase(): Promise<void> {
         console.log('Found existing config.json, migrating to database...');
         console.log('Old config:', oldConfig);
 
-        // Initialize the config manager (this will create default config in DB if none exists)
+        // Initialize the config manager
         await configManager.initialize();
 
-        // Update the database with the old config data
-        await configManager.update({
-            groupToSend: oldConfig.groupToSend,
-            telegramListeningChannels: oldConfig.telegramListeningChannels,
-            forwardingRules: oldConfig.forwardingRules.map(rule => ({
-                ...rule,
-                createdAt: new Date(rule.createdAt),
-                lastModified: new Date(rule.lastModified)
-            })),
-            autoStartForwarding: oldConfig.autoStartForwarding
+        // Migrate to the new simplified format
+        await configManager.updateConfig({
+            whatsappGroupId: oldConfig.groupToSend,
+            telegramChannelIds: oldConfig.telegramListeningChannels,
+            isActive: oldConfig.autoStartForwarding
         });
 
         console.log('✅ Configuration successfully migrated to database!');
         
-        // Optionally backup the old config file
+        // Backup the old config file
         const backupPath = `config.json.backup.${Date.now()}`;
         fs.renameSync(configFilePath, backupPath);
         console.log(`📦 Old config file backed up as: ${backupPath}`);

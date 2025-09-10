@@ -35,7 +35,7 @@ app.get('/', (req, res) => {
 // Initialize forwarding on server start
 async function initializeForwarding() {
     try {
-        if (configManager.getAutoStartForwarding()) {
+        if (configManager.isActive()) {
             console.log('Auto-start forwarding is enabled, will start forwarding when clients are ready...');
         }
     } catch (error) {

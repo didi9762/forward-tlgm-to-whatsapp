@@ -6,9 +6,9 @@ const router = express.Router();
 /**
  * Get all configuration
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        const config = configManager.getConfig();
+        const config = await configManager.getConfig();
         
         res.json({
             success: true,
@@ -27,7 +27,7 @@ router.get('/', (req, res) => {
 /**
  * Update WhatsApp group to send messages to
  */
-router.post('/updateWaGroup', (req, res) => {
+router.post('/updateWaGroup', async (req, res) => {
     try {
         const { groupToSend } = req.body;
         
@@ -38,17 +38,77 @@ router.post('/updateWaGroup', (req, res) => {
             });
         }
 
-        configManager.setGroupToSend(groupToSend);
+        await configManager.setWhatsAppGroupId(groupToSend);
         
         res.json({
             success: true,
             message: 'WhatsApp group updated successfully',
-            config: configManager.getConfig()
+            config: await configManager.getConfig()
         });
     } catch (error: any) {
         res.status(500).json({
             success: false,
             message: 'Error updating WhatsApp group',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Update Telegram channels
+ */
+router.post('/updateTelegramChannels', async (req, res) => {
+    try {
+        const { channelIds } = req.body;
+        
+        if (!Array.isArray(channelIds)) {
+            return res.status(400).json({
+                success: false,
+                message: 'channelIds must be an array'
+            });
+        }
+
+        await configManager.setTelegramChannelIds(channelIds);
+        
+        res.json({
+            success: true,
+            message: 'Telegram channels updated successfully',
+            config: await configManager.getConfig()
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            success: false,
+            message: 'Error updating Telegram channels',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Set configuration active/inactive
+ */
+router.post('/setActive', async (req, res) => {
+    try {
+        const { active } = req.body;
+        
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'active must be a boolean'
+            });
+        }
+
+        await configManager.setActive(active);
+        
+        res.json({
+            success: true,
+            message: `Configuration ${active ? 'activated' : 'deactivated'} successfully`,
+            config: await configManager.getConfig()
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            success: false,
+            message: 'Error updating configuration status',
             error: error.message
         });
     }
