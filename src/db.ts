@@ -6,11 +6,10 @@ interface DatabaseConnection {
   coll: Collection;
 }
 
-export const db = async (collection: string): Promise<DatabaseConnection | false> => {
-  if(!config.mongodb_url)
-    return false;
-  
-  const instanceId = process.env.INSTANCE_ID || 'default';
+export const database = async (collection: string): Promise<DatabaseConnection | false> => {
+  if(!config.mongodb_url){
+    throw new Error('MONGODB_URL is not set');
+  }
   
   const conn = await MongoClient.connect(config.mongodb_url, {
     ignoreUndefined: true,
@@ -21,11 +20,16 @@ export const db = async (collection: string): Promise<DatabaseConnection | false
   };
 };
 
-const database = require("../db");
 
 async function insert(collection: string, id: any, args: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    
     const query = id;
     const update = { $set: args};
     const options = { upsert: true };
@@ -42,8 +46,12 @@ async function insert(collection: string, id: any, args: any): Promise<boolean> 
 }
 
 async function read(collection: string, id: any): Promise<any> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     var data = await coll.findOne(id);
     return data;
   } catch (error) {
@@ -56,8 +64,12 @@ async function read(collection: string, id: any): Promise<any> {
 }
 
 async function deleteMany(collection: string, query: any): Promise<number> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return 0;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const result = await coll.deleteMany(query);
     console.log(`Deleted ${result.deletedCount} document(s)`);
     return result.deletedCount;
@@ -72,8 +84,12 @@ async function deleteMany(collection: string, query: any): Promise<number> {
 }
 
 async function del(collection: string, id: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     await coll.deleteOne(id);
     return true;
   } catch (error) {
@@ -86,8 +102,12 @@ async function del(collection: string, id: any): Promise<boolean> {
 }
 
 async function drop(collection: string): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     await coll.drop();
     return true;
   } catch (error) {
@@ -101,8 +121,12 @@ async function drop(collection: string): Promise<boolean> {
 }
 
 async function add(collection: string, id: any, addition: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const query = id;
     const update = { $push: addition};
     const options = { upsert: true };
@@ -119,8 +143,12 @@ async function add(collection: string, id: any, addition: any): Promise<boolean>
 }
 
 async function increment(collection: string, id: any, addition: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const query = id;
     const update = {$inc: addition };
     const options = { upsert: true };
@@ -137,8 +165,12 @@ async function increment(collection: string, id: any, addition: any): Promise<bo
 }
 
 async function getAllGroupIDs(collection: string): Promise<string[]> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return [];
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const targetDocuments = await coll.find({ status: 'TargetGroup' }).toArray();
     const groupIDs = targetDocuments.map((doc: any) => doc.group_id);
     return groupIDs;
@@ -153,8 +185,12 @@ async function getAllGroupIDs(collection: string): Promise<string[]> {
 }
 
 async function remove(collection: string, id: any, removal: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const query = id;
     const update = { $pull: removal};
     const options = { upsert: true };
@@ -171,8 +207,12 @@ async function remove(collection: string, id: any, removal: any): Promise<boolea
 }
 
 async function removeFields(collection: string, query: any, fieldsToRemove: string | string[]): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     
     // Fetch the document based on the provided query
     const document = await coll.findOne(query);
@@ -208,8 +248,12 @@ async function removeFields(collection: string, query: any, fieldsToRemove: stri
 }
 
 async function countDocuments(collection: string): Promise<number> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return 0;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     const count = await coll.countDocuments();
     return count;
   } catch (error) {
@@ -223,8 +267,12 @@ async function countDocuments(collection: string): Promise<number> {
 }
 
 async function addToDocument(collection: string, query: any, dataToAdd: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
 
     // Check if the document exists
     const existingDocument = await coll.findOne(query);
@@ -250,8 +298,12 @@ async function addToDocument(collection: string, query: any, dataToAdd: any): Pr
 }
 
 async function update(collection: string, query: any, updateData: any): Promise<boolean> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     await coll.updateOne(query, { $set: updateData });
     return true;
   } catch (error) {
@@ -265,8 +317,12 @@ async function update(collection: string, query: any, updateData: any): Promise<
 }
 
 async function readMany(collection: string, query: any): Promise<any[]> {
+  let conn: any = null;
   try {
-    var { conn, coll } = await database(collection);
+    const dbResult = await database(collection);
+    if (!dbResult) return [];
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
     var data = await coll.find(query).toArray();
     return data;
   } catch (error) {
@@ -292,7 +348,7 @@ export interface ListeningConfig {
 async function saveListeningConfig(config: Omit<ListeningConfig, 'id' | 'createdAt' | 'lastModified'>): Promise<ListeningConfig | false> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
@@ -320,7 +376,7 @@ async function saveListeningConfig(config: Omit<ListeningConfig, 'id' | 'created
 async function updateListeningConfig(id: string, updates: Partial<Omit<ListeningConfig, 'id' | 'createdAt'>>): Promise<boolean> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
@@ -346,7 +402,7 @@ async function updateListeningConfig(id: string, updates: Partial<Omit<Listening
 async function getListeningConfig(id: string): Promise<ListeningConfig | null> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return null;
     
     conn = dbResult.conn;
@@ -367,7 +423,7 @@ async function getListeningConfig(id: string): Promise<ListeningConfig | null> {
 async function getAllListeningConfigs(): Promise<ListeningConfig[]> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return [];
     
     conn = dbResult.conn;
@@ -388,7 +444,7 @@ async function getAllListeningConfigs(): Promise<ListeningConfig[]> {
 async function getActiveListeningConfigs(): Promise<ListeningConfig[]> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return [];
     
     conn = dbResult.conn;
@@ -409,7 +465,7 @@ async function getActiveListeningConfigs(): Promise<ListeningConfig[]> {
 async function deleteListeningConfig(id: string): Promise<boolean> {
   let conn: any = null;
   try {
-    const dbResult = await db('listening_configs');
+    const dbResult = await database('listening_configs');
     if (!dbResult) return false;
     
     conn = dbResult.conn;
