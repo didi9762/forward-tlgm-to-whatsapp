@@ -236,4 +236,263 @@ router.get('/listening-channels', (req, res) => {
     }
 });
 
+/**
+ * Get available channels and groups
+ */
+router.get('/channels', async (req, res) => {
+    try {
+        if (!telegramInstance.isReady()) {
+            return res.status(400).json({
+                success: false,
+                error: 'Telegram client is not ready'
+            });
+        }
+
+        const channels = await telegramInstance.getChannelsAndGroups();
+        
+        res.json({
+            success: true,
+            channels: channels
+        });
+    } catch (error) {
+        console.error('Error getting channels:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Get client info
+ */
+router.get('/info', async (req, res) => {
+    try {
+        const isReady = telegramInstance.isReady();
+        let clientInfo = null;
+        
+        if (isReady) {
+            clientInfo = await telegramInstance.getClientInfo();
+        }
+
+        res.json({
+            success: true,
+            isReady: isReady,
+            clientInfo: clientInfo
+        });
+    } catch (error) {
+        console.error('Error getting client info:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Start listening to specific channels
+ */
+router.post('/listen', async (req, res) => {
+    try {
+        const { channelIds } = req.body;
+        
+        if (!Array.isArray(channelIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'channelIds must be an array'
+            });
+        }
+
+        // Get current config and add new channels
+        const currentChannels = configManager.getTelegramChannelIds();
+        const newChannels = [...new Set([...currentChannels, ...channelIds])];
+        
+        await configManager.setTelegramChannelIds(newChannels);
+        await telegramInstance.startListening(channelIds);
+
+        res.json({
+            success: true,
+            message: `Started listening to ${channelIds.length} channels`
+        });
+    } catch (error) {
+        console.error('Error starting to listen:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Stop listening to specific channels
+ */
+router.post('/stop-listening', async (req, res) => {
+    try {
+        const { channelIds } = req.body;
+        
+        if (!Array.isArray(channelIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'channelIds must be an array'
+            });
+        }
+
+        // Get current config and remove channels
+        const currentChannels = configManager.getTelegramChannelIds();
+        const newChannels = currentChannels.filter(id => !channelIds.includes(id));
+        
+        await configManager.setTelegramChannelIds(newChannels);
+        await telegramInstance.stopListening(channelIds);
+
+        res.json({
+            success: true,
+            message: `Stopped listening to ${channelIds.length} channels`
+        });
+    } catch (error) {
+        console.error('Error stopping listening:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Get listening channels (alias for compatibility)
+ */
+router.get('/listening', async (req, res) => {
+    try {
+        const channels = configManager.getTelegramChannelIds();
+        res.json({
+            success: true,
+            listeningChannels: channels
+        });
+    } catch (error) {
+        console.error('Error getting listening channels:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Restart Telegram client
+ */
+router.post('/restart', async (req, res) => {
+    try {
+        await telegramInstance.disconnect();
+        await telegramInstance.restart();
+        
+        res.json({
+            success: true,
+            message: 'Telegram client restarted successfully'
+        });
+    } catch (error) {
+        console.error('Error restarting Telegram:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Reset Telegram session
+ */
+router.post('/reset', async (req, res) => {
+    try {
+        await telegramInstance.reset();
+        
+        res.json({
+            success: true,
+            message: 'Telegram session reset successfully'
+        });
+    } catch (error) {
+        console.error('Error resetting Telegram:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Submit verification code
+ */
+router.post('/submit-code', async (req, res) => {
+    try {
+        const { code } = req.body;
+        
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                error: 'Verification code is required'
+            });
+        }
+
+        telegramInstance.submitPhoneCode(code);
+        
+        res.json({
+            success: true,
+            message: 'Verification code submitted successfully'
+        });
+    } catch (error) {
+        console.error('Error submitting code:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Submit 2FA password
+ */
+router.post('/submit-password', async (req, res) => {
+    try {
+        const { password } = req.body;
+        
+        if (!password) {
+            return res.status(400).json({
+                success: false,
+                error: '2FA password is required'
+            });
+        }
+
+        await telegramInstance.submitPassword(password);
+        
+        res.json({
+            success: true,
+            message: '2FA password submitted successfully'
+        });
+    } catch (error) {
+        console.error('Error submitting password:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Get authentication status
+ */
+router.get('/auth-status', async (req, res) => {
+    try {
+        const authStatus = telegramInstance.isReady();
+        
+        res.json({
+            success: true,
+            isReady: authStatus
+        });
+    } catch (error) {
+        console.error('Error getting auth status:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
 export default router;
