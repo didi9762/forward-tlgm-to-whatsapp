@@ -10,6 +10,9 @@
 </head>
 
 <body>
+    <!-- Fixed Alert Section -->
+    <div id="channelAlert" style="display: none;"></div>
+    
     <!-- Navigation Header -->
     <nav class="nav-header">
         <div class="nav-container">
@@ -315,6 +318,7 @@
                     console.log('channels', channels.slice(0, 10));
                     
                     renderChannels(channels);
+                    renderListeningChannels();
                     showAlert('success', `✅ Loaded ${data.channels.length} channels and groups`);
                 } else {
                     channelsList.innerHTML = '<div class="channels-placeholder">❌ Failed to load channels</div>';
@@ -664,12 +668,27 @@
         // Show alert
         function showAlert(type, message) {
             const alertEl = document.getElementById('channelAlert');
+            const body = document.body;
+            
             alertEl.className = `alert alert-${type}`;
             alertEl.textContent = message;
             alertEl.style.display = 'block';
-
+            
+            // Add show class and body padding
             setTimeout(() => {
-                alertEl.style.display = 'none';
+                alertEl.classList.add('show');
+                body.classList.add('alert-shown');
+            }, 10);
+
+            // Hide after 5 seconds
+            setTimeout(() => {
+                alertEl.classList.remove('show');
+                body.classList.remove('alert-shown');
+                
+                // Hide completely after animation
+                setTimeout(() => {
+                    alertEl.style.display = 'none';
+                }, 300);
             }, 5000);
         }
 
