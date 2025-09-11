@@ -86,7 +86,7 @@ export class WhatsAppInstance {
                     if (!this.isInitialized) {
                         reject(new Error('WhatsApp client initialization timeout'));
                     }
-                }, 60000); // 60 seconds timeout
+                }, 1000 * 60 *2); // 2 minutes timeout
             });
         } catch (error) {
             console.error('Error initializing WhatsApp client:', error);
@@ -421,7 +421,7 @@ export class WhatsAppInstance {
 
             return `data:image/png;base64,${screenshot}`;
         } catch (error) {
-            console.error('Error taking screenshot:', error);
+            console.error('Error taking screenshot');
             return '';
         }
     }
