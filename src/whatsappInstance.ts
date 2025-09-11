@@ -62,6 +62,7 @@ export class WhatsAppInstance {
             return new Promise((resolve, reject) => {
                 this.client.on('qr', (qr) => {
                     console.log('whatsapp need scan');
+                    this.currentQrCode = qr;
                     resolve();
                 })
                 
@@ -83,7 +84,7 @@ export class WhatsAppInstance {
 
                 // Set a timeout for initialization
                 setTimeout(() => {
-                    if (!this.isInitialized) {
+                    if (!this.isInitialized && !this.currentQrCode) {
                         reject(new Error('WhatsApp client initialization timeout'));
                     }
                 }, 1000 * 60 * 2); // 2 minutes timeout
@@ -436,7 +437,7 @@ export class WhatsAppInstance {
         });
 
         this.client.on('ready', () => {
-            console.log('WhatsApp client is ready');
+            // console.log('WhatsApp client is ready');
             this.currentQrCode = ''; // Clear QR code when ready
         });
 
