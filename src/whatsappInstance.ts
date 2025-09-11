@@ -104,12 +104,10 @@ export class WhatsAppInstance {
         try {
             console.log('Restarting WhatsApp client...');
             
-            if (this.isInitialized) {
-                await this.client.destroy();
-                this.isInitialized = false;
-                console.log('WhatsApp client destroyed, waiting for 1.5 seconds to restart');
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
+            await this.client.destroy();
+            this.isInitialized = false;
+            console.log('WhatsApp client destroyed, waiting for 1.5 seconds to restart');
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
             // Create new client instance
             this.client = new Client({
