@@ -60,7 +60,7 @@ export class WhatsAppInstance {
             await this.client.initialize();
             
             return new Promise((resolve, reject) => {
-                this.client.once('qr', (qr) => {
+                this.client.on('qr', (qr) => {
                     console.log('whatsapp need scan');
                     resolve();
                 })
