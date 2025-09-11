@@ -431,7 +431,7 @@ export class WhatsAppInstance {
      */
     private setupEventHandlers(): void {
         this.client.on('qr', async (qr) => {
-            // console.log('QR Code received');
+            console.log('QR Code received');
             // this.currentQrCode = qr; // Store QR code
             
             // if (this.qrCodeCallback) {
