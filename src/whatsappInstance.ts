@@ -71,6 +71,11 @@ export class WhatsAppInstance {
                     resolve();
                 });
 
+                this.client.once('qr', (qr) => {
+                    console.log('whatsapp need scan');
+                    resolve();
+                })
+
                 this.client.once('auth_failure', (msg) => {
                     console.error('Authentication failed:', msg);
                     reject(new Error(`Authentication failed: ${msg}`));
