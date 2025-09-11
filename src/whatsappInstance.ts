@@ -12,8 +12,6 @@ export class WhatsAppInstance {
 
     constructor() {
         // Clean up any existing singleton locks before creating client
-        this.cleanupSingletonLock();
-        
         this.client = new Client({
             authStrategy: new LocalAuth({
                 clientId: "telegram-forwarder"
@@ -109,6 +107,8 @@ export class WhatsAppInstance {
             if (this.isInitialized) {
                 await this.client.destroy();
                 this.isInitialized = false;
+                console.log('WhatsApp client destroyed, waiting for 1.5 seconds to restart');
+                await new Promise(resolve => setTimeout(resolve, 1500));
             }
 
             // Create new client instance
@@ -117,6 +117,7 @@ export class WhatsAppInstance {
                     clientId: "telegram-forwarder"
                 }),
                 puppeteer: {
+                    executablePath: process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : process.platform === 'linux' ? '/usr/bin/google-chrome' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
                     headless: true,
                     args: [
                         "--no-sandbox",

@@ -504,7 +504,7 @@ export class TelegramInstance {
         this.currentEventHandler = async (event: any) => {
             try {
                 const message = event.message;
-                
+
                 if (!message) return;
                 const activeConfigs = await getActiveListeningConfigs();
                 this.listeningChannels = new Set(activeConfigs[0]?.telegramChannelIds);
@@ -515,6 +515,7 @@ export class TelegramInstance {
                 const fixedId = chatId.startsWith('-100')?chatId.replace('-100', ''):chatId.replace('-', '');
                 if (!chatId || !this.listeningChannels.has(fixedId)) return;
                 console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
+                if(!this.messageHandlers.length) return;
 
                 let titel = ''
                 const entity = await this.client.getEntity(chatId);
