@@ -430,17 +430,6 @@ export class WhatsAppInstance {
      * Setup event handlers for the WhatsApp client
      */
     private setupEventHandlers(): void {
-        this.client.on('qr', async (qr) => {
-            console.log('QR Code received');
-            // this.currentQrCode = qr; // Store QR code
-            
-            // if (this.qrCodeCallback) {
-            //     this.qrCodeCallback(qr);
-            // } else {
-            //     console.log('QR Code updated. Use /api/qr endpoint to retrieve it.');
-            // }
-        });
-
         this.client.on('authenticated', () => {
             console.log('WhatsApp authenticated successfully');
             this.currentQrCode = ''; // Clear QR code when authenticated
