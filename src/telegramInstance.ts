@@ -126,7 +126,24 @@ export class TelegramInstance {
      */
     public async initialize(phoneNumber: string): Promise<void> {
         try {
-            console.log('Initializing Telegram client...');
+            console.log('Initializing Telegram client with phone number:', phoneNumber);
+            if(!this.client){
+                const apiId = parseInt(process.env.TELEGRAM_API_ID || '0');
+                const apiHash = process.env.TELEGRAM_API_HASH || '';
+                if (!apiId || !apiHash) {
+                    throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in environment variables');
+                }
+                this.client = new TelegramClient(
+                    new StringSession(this.sessionString),
+                    apiId,
+                    apiHash,
+                    {
+                        connectionRetries: 5,
+                        useWSS: true,
+                    }
+                );
+                this.setupEventHandlers();
+            }
             
             this.isAuthenticating = true;
             
