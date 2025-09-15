@@ -215,6 +215,9 @@
                     
                     // Clear client info when not connected
                     updateClientInfo(null);
+                    
+                    // Check if we're in the middle of authentication
+                    checkAuthStatus();
                 }
             } catch (error) {
                 console.error('Error checking status:', error);
@@ -224,6 +227,9 @@
                 
                 // Clear client info on error
                 updateClientInfo(null);
+                
+                // Check auth status even on error
+                checkAuthStatus();
             }
         }
 
