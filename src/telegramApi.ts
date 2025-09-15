@@ -480,11 +480,17 @@ router.post('/submit-password', async (req, res) => {
  */
 router.get('/auth-status', async (req, res) => {
     try {
-        const authStatus = telegramInstance.isReady();
+        const isReady = telegramInstance.isReady();
+        const isWaitingForPhoneCode = telegramInstance.isWaitingForPhoneCode();
+        const isWaitingForPassword = telegramInstance.isWaitingForPassword();
+        const isAuthenticating = telegramInstance.checkIsAuthenticating();
         
         res.json({
             success: true,
-            isReady: authStatus
+            isReady: isReady,
+            isWaitingForPhoneCode: isWaitingForPhoneCode,
+            isWaitingForPassword: isWaitingForPassword,
+            isAuthenticating: isAuthenticating
         });
     } catch (error) {
         console.error('Error getting auth status:', error);
