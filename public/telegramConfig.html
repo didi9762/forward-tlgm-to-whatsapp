@@ -23,6 +23,7 @@
                 <a href="/" class="nav-btn">🏠 Home</a>
                 <a href="/whatsapp-config.html" class="nav-btn">📱 WhatsApp Config</a>
                 <a href="/telegramConfig.html" class="nav-btn active">💬 Telegram Config</a>
+                <a href="/twitterConfig.html" class="nav-btn">🐦 Twitter Config</a>
             </div>
         </div>
     </nav>
@@ -801,7 +802,7 @@
         // Check authentication status
         async function checkAuthStatus() {
             try {
-                const response = await fetch('/telegram/auth-status');
+                const response = await fetch(`/telegram/auth-status?_t=${Date.now()}`);
                 const data = await response.json();
 
                 if (data.success) {
