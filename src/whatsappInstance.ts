@@ -9,6 +9,9 @@ export class WhatsAppInstance {
     private isInitialized: boolean = false;
     private currentQrCode: string = '';
     private qrCodeCallback?: (qr: string) => void;
+    private isRestarting: boolean = false;
+    private maxRestartAttempts: number = 3;
+    private restartAttempts: number = 0;
 
     constructor() {
         // Clean up any existing singleton locks before creating client
@@ -48,6 +51,79 @@ export class WhatsAppInstance {
     }
 
     /**
+     * Check if error requires client restart
+     * @param error Error object or string
+     * @returns boolean indicating if restart is needed
+     */
+    private shouldRestartClient(error: any): boolean {
+        const errorMessage = error?.message || error?.toString() || '';
+        
+        // List of error patterns that require restart
+        const restartTriggers = [
+            'Protocol error (Runtime.callFunctionOn): Session closed',
+            'Session closed. Most likely the page has been closed',
+            'Target closed',
+            'Page crashed',
+            'Navigation timeout',
+            'Protocol error',
+            'WebSocket connection closed',
+            'Browser has been closed'
+        ];
+
+        return restartTriggers.some(trigger => errorMessage.includes(trigger));
+    }
+
+    /**
+     * Handle errors with automatic restart if needed
+     * @param error The error that occurred
+     * @param context Context where the error occurred
+     * @param shouldRestart Whether to attempt restart for this error
+     */
+    private async handleError(error: any, context: string, shouldRestart: boolean = true): Promise<void> {
+        const errorMessage = error?.message || error?.toString() || 'Unknown error';
+        console.error(`WhatsApp ${context} error:`, errorMessage);
+
+        if (shouldRestart && this.shouldRestartClient(error) && !this.isRestarting) {
+            console.log(`Detected session error in ${context}, attempting to restart client...`);
+            await this.attemptRestart();
+        }
+    }
+
+    /**
+     * Attempt to restart client with retry logic
+     */
+    private async attemptRestart(): Promise<void> {
+        if (this.isRestarting) {
+            console.log('Restart already in progress, skipping...');
+            return;
+        }
+
+        this.isRestarting = true;
+        this.restartAttempts++;
+
+        try {
+            if (this.restartAttempts > this.maxRestartAttempts) {
+                console.error(`Max restart attempts (${this.maxRestartAttempts}) reached. Manual intervention required.`);
+                this.isRestarting = false;
+                return;
+            }
+
+            console.log(`Restart attempt ${this.restartAttempts}/${this.maxRestartAttempts}`);
+            await this.restart();
+            
+            // Reset restart attempts on successful restart
+            this.restartAttempts = 0;
+        } catch (restartError) {
+            console.error('Failed to restart client:', restartError);
+            
+            // Wait before next attempt
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        } finally {
+            this.isRestarting = false;
+        }
+    }
+
+    /**
      * Initialize the WhatsApp client
      * @param qrCallback Optional callback to handle QR code display
      */
@@ -73,6 +149,9 @@ export class WhatsAppInstance {
                     this.client.getChats().then(() => {
                         console.log('WhatsApp groups are ready!');
                         this.groupsReady = true;
+                    }).catch((error) => {
+                        console.error('Error getting chats after ready:', error);
+                        this.handleError(error, 'getChats after ready');
                     });
                     resolve();
                 });
@@ -91,6 +170,7 @@ export class WhatsAppInstance {
             });
         } catch (error) {
             console.error('Error initializing WhatsApp client:', error);
+            await this.handleError(error, 'initialize');
             throw error;
         }
     }
@@ -222,6 +302,7 @@ export class WhatsAppInstance {
             return groups;
         } catch (error) {
             console.error('Error getting groups:', error);
+            await this.handleError(error, 'getGroups');
             throw error;
         }
     }
@@ -246,6 +327,7 @@ export class WhatsAppInstance {
             console.log(`Text message sent to group: ${group.name}`);
         } catch (error) {
             console.error('Error sending text message to group:', error);
+            await this.handleError(error, 'sendTextToGroup');
             throw error;
         }
     }
@@ -288,6 +370,7 @@ export class WhatsAppInstance {
             console.log(`Media message sent to group: ${group.name}`);
         } catch (error) {
             console.error('Error sending media message to group:', error);
+            await this.handleError(error, 'sendMediaToGroup');
             throw error;
         }
     }
@@ -307,12 +390,18 @@ export class WhatsAppInstance {
             mediaType?: 'image' | 'video' | 'audio' | 'document';
         }
     ): Promise<void> {
-        const { type = 'text', caption, mediaType = 'image' } = options || {};
-        
-        if (type === 'media') {
-            await this.sendMediaToGroup(groupId, content, caption, mediaType);
-        } else {
-            await this.sendTextToGroup(groupId, content);
+        try {
+            const { type = 'text', caption, mediaType = 'image' } = options || {};
+            
+            if (type === 'media') {
+                await this.sendMediaToGroup(groupId, content, caption, mediaType);
+            } else {
+                await this.sendTextToGroup(groupId, content);
+            }
+        } catch (error) {
+            console.error('Error in sendMessageToGroup:', error);
+            await this.handleError(error, 'sendMessageToGroup');
+            throw error;
         }
     }
 
@@ -344,6 +433,7 @@ export class WhatsAppInstance {
             return group || null;
         } catch (error) {
             console.error('Error finding group:', error);
+            await this.handleError(error, 'findGroup');
             return null;
         }
     }
@@ -360,6 +450,7 @@ export class WhatsAppInstance {
             return await this.client.getState();
         } catch (error) {
             console.error('Error getting client info:', error);
+            await this.handleError(error, 'getClientInfo');
             throw error;
         }
     }
@@ -422,7 +513,8 @@ export class WhatsAppInstance {
 
             return `data:image/png;base64,${screenshot}`;
         } catch (error) {
-            console.error('Error taking screenshot');
+            console.error('Error taking screenshot:', error);
+            await this.handleError(error, 'takeScreenshot');
             return '';
         }
     }
@@ -444,12 +536,53 @@ export class WhatsAppInstance {
         this.client.on('disconnected', (reason) => {
             console.log('WhatsApp client disconnected:', reason);
             this.isInitialized = false;
+            this.groupsReady = false;
+            
+            // Handle disconnection with potential restart
+            this.handleError(new Error(`Client disconnected: ${reason}`), 'disconnected event');
         });
 
         this.client.on('auth_failure', (message) => {
             console.error('Authentication failure:', message);
             this.isInitialized = false;
+            this.groupsReady = false;
         });
+
+        // Add error event handler
+        this.client.on('error', (error) => {
+            console.error('WhatsApp client error:', error);
+            this.handleError(error, 'client error event');
+        });
+
+        // Add change_state event handler for additional monitoring
+        this.client.on('change_state', (state) => {
+            console.log('WhatsApp client state changed:', state);
+            if (state === 'CONFLICT' || state === 'UNPAIRED') {
+                this.isInitialized = false;
+                this.groupsReady = false;
+            }
+        });
+    }
+
+    /**
+     * Check if client is currently restarting
+     */
+    public isCurrentlyRestarting(): boolean {
+        return this.isRestarting;
+    }
+
+    /**
+     * Get restart attempts count
+     */
+    public getRestartAttempts(): number {
+        return this.restartAttempts;
+    }
+
+    /**
+     * Reset restart attempts counter
+     */
+    public resetRestartAttempts(): void {
+        this.restartAttempts = 0;
     }
 }
 
