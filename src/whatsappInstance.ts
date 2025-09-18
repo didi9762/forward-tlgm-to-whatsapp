@@ -235,6 +235,7 @@ export class WhatsAppInstance {
     public async resetInstance(): Promise<void> {
         try {
             console.log('Resetting WhatsApp instance...');
+            this.isRestarting = true;
             
             // First destroy the current client if it exists
             if (this.isInitialized) {
