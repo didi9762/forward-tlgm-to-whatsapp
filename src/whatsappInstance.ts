@@ -57,6 +57,9 @@ export class WhatsAppInstance {
      */
     private shouldRestartClient(error: any): boolean {
         const errorMessage = error?.message || error?.toString() || '';
+        if (!this.isInitialized || this.isRestarting) return false
+        console.log('checking err mess:',errorMessage);
+        
         
         // List of error patterns that require restart
         const restartTriggers = [
@@ -170,7 +173,7 @@ export class WhatsAppInstance {
             });
         } catch (error) {
             console.error('Error initializing WhatsApp client:', error);
-            await this.handleError(error, 'initialize');
+            // await this.handleError(error, 'initialize');
             throw error;
         }
     }
@@ -189,6 +192,7 @@ export class WhatsAppInstance {
     public async restart(): Promise<void> {
         try {
             console.log('Restarting WhatsApp client...');
+            this.isRestarting = true;
             
             await this.client.destroy();
             this.isInitialized = false;
@@ -218,7 +222,10 @@ export class WhatsAppInstance {
             console.log('WhatsApp client restarted successfully');
         } catch (error) {
             console.error('Error restarting WhatsApp client:', error);
+            this.isRestarting = false
             throw error;
+        }finally{
+            this.isRestarting = false
         }
     }
 
