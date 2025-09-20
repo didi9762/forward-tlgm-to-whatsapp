@@ -208,13 +208,13 @@ class ForwardingManager {
             // Format the message for WhatsApp
             let formattedMessage = `📢 *${message.channelTitle}*\n`;
             
-            if (message.senderName) {
-                formattedMessage += `👤 ${message.senderName}\n`;
-            }
+            // if (message.senderName) {
+            //     formattedMessage += `👤 ${message.senderName}\n`;
+            // }
             
-            if (message.isForwarded && message.forwardedFrom) {
-                formattedMessage += `🔄 Forwarded from: ${message.forwardedFrom}\n`;
-            }
+            // if (message.isForwarded && message.forwardedFrom) {
+            //     formattedMessage += `🔄 Forwarded from: ${message.forwardedFrom}\n`;
+            // }
             
             if (message.text) {
                 formattedMessage += `\n${message.text}`;
