@@ -1,8 +1,16 @@
 import { database } from './db';
 
+export interface TwitterAccount {
+    id: string;
+    username: string;
+    name?: string;
+}
+
 export interface AppConfig {
     whatsappGroupId: string;
     telegramChannelIds: string[];
+    twitterAccounts: TwitterAccount[];
+    lastSinceId?: string; // Add this field for Twitter's last checked tweet ID
     isActive: boolean;
     createdAt: Date;
     lastModified: Date;
@@ -14,6 +22,8 @@ class ConfigManager {
     private defaultConfig: AppConfig = {
         whatsappGroupId: '',
         telegramChannelIds: [],
+        twitterAccounts: [],
+        lastSinceId: undefined,
         isActive: true,
         createdAt: new Date(),
         lastModified: new Date()
@@ -206,6 +216,67 @@ class ConfigManager {
     }
 
     /**
+     * Get Twitter accounts
+     */
+    public getTwitterAccounts(): TwitterAccount[] {
+        return [...this.config.twitterAccounts];
+    }
+
+    /**
+     * Set Twitter accounts
+     */
+    public async setTwitterAccounts(accounts: TwitterAccount[]): Promise<void> {
+        await this.updateConfig({ twitterAccounts: accounts });
+    }
+
+    /**
+     * Add Twitter account
+     */
+    public async addTwitterAccount(account: TwitterAccount): Promise<void> {
+        const currentAccounts = this.getTwitterAccounts();
+        const existingIndex = currentAccounts.findIndex(acc => acc.id === account.id);
+        
+        if (existingIndex >= 0) {
+            // Update existing account
+            currentAccounts[existingIndex] = account;
+        } else {
+            // Add new account
+            currentAccounts.push(account);
+        }
+        
+        await this.setTwitterAccounts(currentAccounts);
+    }
+
+    /**
+     * Remove Twitter account
+     */
+    public async removeTwitterAccount(accountId: string): Promise<void> {
+        const currentAccounts = this.getTwitterAccounts();
+        const filteredAccounts = currentAccounts.filter(acc => acc.id !== accountId);
+        await this.setTwitterAccounts(filteredAccounts);
+    }
+
+    /**
+     * Get Twitter account IDs (for backward compatibility)
+     */
+    public getTwitterAccountIds(): string[] {
+        return this.config.twitterAccounts.map(acc => acc.id);
+    }
+
+    /**
+     * Set Twitter account IDs (for backward compatibility)
+     */
+    public async setTwitterAccountIds(accountIds: string[]): Promise<void> {
+        // Keep existing usernames if possible
+        const currentAccounts = this.getTwitterAccounts();
+        const newAccounts: TwitterAccount[] = accountIds.map(id => {
+            const existing = currentAccounts.find(acc => acc.id === id);
+            return existing || { id, username: `user_${id}` };
+        });
+        await this.setTwitterAccounts(newAccounts);
+    }
+
+    /**
      * Check if configuration is active
      */
     public isActive(): boolean {
@@ -230,6 +301,20 @@ class ConfigManager {
             lastModified: new Date()
         };
         await this.saveConfig();
+    }
+
+    /**
+     * Get last since ID for Twitter
+     */
+    public getLastSinceId(): string | null {
+        return this.config.lastSinceId || null;
+    }
+
+    /**
+     * Set last since ID for Twitter
+     */
+    public async setLastSinceId(sinceId: string): Promise<void> {
+        await this.updateConfig({ lastSinceId: sinceId });
     }
 }
 

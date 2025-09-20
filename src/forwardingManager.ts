@@ -1,5 +1,6 @@
 import { TelegramInstance, TelegramMessage } from './telegramInstance';
 import { WhatsAppInstance } from './whatsappInstance';
+import { TwitterInstance, TwitterMessage } from './twitterInstance';
 import { ListeningConfig } from './db';
 import fs from 'fs';
 import path from 'path';
@@ -12,14 +13,25 @@ export interface ForwardingSession {
     isActive: boolean;
 }
 
+export interface TwitterForwardingSession {
+    configId: string;
+    handlerId: string;
+    messageHandler: (message: TwitterMessage) => void;
+    isActive: boolean;
+    accountIds: string[];
+}
+
 class ForwardingManager {
     private telegramInstance: TelegramInstance;
     private whatsappInstance: WhatsAppInstance;
+    private twitterInstance: TwitterInstance;
     private activeSessions: Map<string, ForwardingSession> = new Map();
+    private activeTwitterSessions: Map<string, TwitterForwardingSession> = new Map();
 
-    constructor(telegramInstance: TelegramInstance, whatsappInstance: WhatsAppInstance) {
+    constructor(telegramInstance: TelegramInstance, whatsappInstance: WhatsAppInstance, twitterInstance: TwitterInstance) {
         this.telegramInstance = telegramInstance;
         this.whatsappInstance = whatsappInstance;
+        this.twitterInstance = twitterInstance;
     }
 
     /**
@@ -94,6 +106,77 @@ class ForwardingManager {
     }
 
     /**
+     * Start Twitter forwarding based on a specific config
+     */
+    public async startTwitterForwardingConfig(config: ListeningConfig, accountIds: string[]): Promise<boolean> {
+        try {
+            // Check if config is already active
+            if (this.activeTwitterSessions.has(config.id)) {
+                console.log(`Twitter forwarding config ${config.id} is already active`);
+                return true;
+            }
+
+            // Stop any existing config first to prevent handler accumulation
+            this.stopTwitterForwardingConfig(config.id);
+
+            // Check if Twitter client is ready
+            if (!this.twitterInstance.isReady()) {
+                console.error('Twitter client is not ready');
+                return false;
+            }
+
+            // Check if WhatsApp client is ready
+            if (!this.whatsappInstance.isReady()) {
+                console.error('WhatsApp client is not ready');
+                return false;
+            }
+
+            // Start listening to the accounts in this config
+            await this.twitterInstance.startListening(accountIds.map(id => ({ id, username: `user_${id}` })), false);
+
+            // Create message handler for this config
+            const messageHandler = async (message: TwitterMessage) => {
+                console.log(`TwitterForwardingManager: Checking tweet from account ${message.authorId}`);
+                console.log(`TwitterForwardingManager: Config sources:`, accountIds);
+                
+                // Check if this message is from one of the sources in this config
+                if (accountIds.includes(message.authorId)) {
+                    console.log(`TwitterForwardingManager: Tweet matches config ${config.id}, forwarding to WhatsApp`);
+                    try {
+                        await this.forwardTwitterMessageToWhatsApp(message, config);
+                        console.log(`TwitterForwardingManager: Tweet forwarded successfully`);
+                    } catch (error) {
+                        console.error(`Error forwarding tweet from config ${config.id}:`, error);
+                    }
+                } else {
+                    console.log(`TwitterForwardingManager: Tweet does not match config ${config.id}`);
+                }
+            };
+
+            // Add the handler to Twitter instance
+            this.twitterInstance.onMessage(messageHandler);
+
+            // Create session record
+            const session: TwitterForwardingSession = {
+                configId: config.id,
+                handlerId: `twitter_handler_${config.id}_${Date.now()}`,
+                messageHandler,
+                isActive: true,
+                accountIds: accountIds
+            };
+
+            this.activeTwitterSessions.set(config.id, session);
+
+            console.log(`Started Twitter forwarding config: ${config.id}`);
+            return true;
+
+        } catch (error) {
+            console.error(`Error starting Twitter forwarding config ${config.id}:`, error);
+            return false;
+        }
+    }
+
+    /**
      * Stop forwarding for a specific config
      */
     public stopForwardingConfig(configId: string): boolean {
@@ -115,6 +198,32 @@ class ForwardingManager {
 
         } catch (error) {
             console.error(`Error stopping forwarding config ${configId}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Stop Twitter forwarding for a specific config
+     */
+    public stopTwitterForwardingConfig(configId: string): boolean {
+        try {
+            const session = this.activeTwitterSessions.get(configId);
+            if (!session) {
+                console.log(`No active Twitter session found for config ${configId}`);
+                return false;
+            }
+
+            // Remove message handler
+            this.twitterInstance.removeMessageHandler(session.messageHandler);
+
+            // Remove session
+            this.activeTwitterSessions.delete(configId);
+
+            console.log(`Stopped Twitter forwarding config: ${configId}`);
+            return true;
+
+        } catch (error) {
+            console.error(`Error stopping Twitter forwarding config ${configId}:`, error);
             return false;
         }
     }
@@ -148,7 +257,12 @@ class ForwardingManager {
             this.stopForwardingConfig(configId);
         }
 
+        for (const [configId] of this.activeTwitterSessions) {
+            this.stopTwitterForwardingConfig(configId);
+        }
+
         this.activeSessions.clear();
+        this.activeTwitterSessions.clear();
     }
 
     /**
@@ -179,10 +293,36 @@ class ForwardingManager {
     }
 
     /**
+     * Get active Twitter sessions info
+     */
+    public async getActiveTwitterSessionsInfo(): Promise<Array<{configId: string, handlerId: string, whatsappGroupId: string, twitterSourcesCount: number}>> {
+        const result: Array<{configId: string, handlerId: string, whatsappGroupId: string, twitterSourcesCount: number}> = [];
+        
+        for (const [configId, session] of this.activeTwitterSessions) {
+            const config = await getListeningConfig(configId);
+            result.push({
+                configId,
+                handlerId: session.handlerId,
+                whatsappGroupId: config?.whatsappGroupId || 'Unknown',
+                twitterSourcesCount: session.accountIds.length
+            });
+        }
+
+        return result;
+    }
+
+    /**
      * Check if a config is currently active
      */
     public isConfigActive(configId: string): boolean {
         return this.activeSessions.has(configId);
+    }
+
+    /**
+     * Check if a Twitter config is currently active
+     */
+    public isTwitterConfigActive(configId: string): boolean {
+        return this.activeTwitterSessions.has(configId);
     }
 
     /**
@@ -277,6 +417,60 @@ class ForwardingManager {
 
         } catch (error) {
             console.error('Error forwarding message to WhatsApp:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Forward a Twitter message to WhatsApp
+     */
+    private async forwardTwitterMessageToWhatsApp(message: TwitterMessage, config: ListeningConfig): Promise<void> {
+        try {
+            // Format the message for WhatsApp
+            let formattedMessage = `🐦 *@${message.authorUsername}* (${message.authorName})\n`;
+            
+            if (message.isRetweet && message.retweetedFrom) {
+                formattedMessage += `🔄 Retweeted from: ${message.retweetedFrom}\n`;
+            }
+            
+            if (message.text) {
+                formattedMessage += `\n${message.text}`;
+            }
+
+            // Add hashtags if present
+            if (message.hashtags && message.hashtags.length > 0) {
+                // formattedMessage += `\n\n#${message.hashtags.join(' #')}`;
+            }
+
+            // Add mentions if present
+            if (message.mentions && message.mentions.length > 0) {
+                // formattedMessage += `\n\nMentions: @${message.mentions.join(' @')}`;
+            }
+
+            // Add URLs if present
+            if (message.urls && message.urls.length > 0) {
+                formattedMessage += `\n\nLinks: ${message.urls.join(' ')}`;
+            }
+
+            // Handle media messages
+            if (message.hasMedia && message.mediaUrls && message.mediaUrls.length > 0) {
+                console.log(`Forwarding Twitter media: ${message.mediaType}`);
+                
+                // For now, just mention the media in the text
+                // In a full implementation, you might want to download and forward the media
+                formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'}`;
+                if (message.mediaUrls.length > 0) {
+                    formattedMessage += `\n${message.mediaUrls.join('\n')}`;
+                }
+            }
+            
+            // Send text message to WhatsApp group
+            await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
+            
+            console.log(`Forwarded tweet from @${message.authorUsername} to WhatsApp group via config: ${config.id}`);
+
+        } catch (error) {
+            console.error('Error forwarding Twitter message to WhatsApp:', error);
             throw error;
         }
     }

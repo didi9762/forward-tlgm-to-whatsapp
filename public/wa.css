@@ -405,7 +405,7 @@ body {
 }
 
 .nav-logo:hover {
-    color: #25D366;
+    color: #007bff;
     text-decoration: none;
 }
 
@@ -430,14 +430,14 @@ body {
 }
 
 .nav-btn:hover {
-    background: #25D366;
+    background: #007bff;
     color: white;
     text-decoration: none;
     transform: translateY(-1px);
 }
 
 .nav-btn.active {
-    background: #25D366;
+    background: #007bff;
 }
 
 @media (max-width: 768px) {

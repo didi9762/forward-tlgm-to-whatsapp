@@ -4,6 +4,7 @@ import path from 'path';
 import whatsappApi from './whatsappApi';
 import configApi from './configApi';
 import telegramApi from './telegramApi';
+import twitterApi from './twitterApi';
 import { configManager } from './configManager';
 
 const app = express();
@@ -20,6 +21,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 // API Routes
 app.use('/whatsapp', whatsappApi);
 app.use('/telegram', telegramApi);
+app.use('/twitter', twitterApi);
 app.use('/config', configApi);
 
 // Health check
@@ -92,6 +94,7 @@ const server = app.listen(Number(PORT), process.env.HOST || '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`API endpoints available at http://localhost:${PORT}/api/whatsapp`);
     console.log(`Listening config API available at http://localhost:${PORT}/telegram/listening-config/`);
+    console.log(`Twitter API available at http://localhost:${PORT}/twitter/`);
     
     // Initialize forwarding after server starts
     initializeForwarding();

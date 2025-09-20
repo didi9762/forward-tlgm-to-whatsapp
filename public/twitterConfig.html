@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="wa.css">
+    <link rel="stylesheet" href="twit.css">
+    <title>Twitter Configuration</title>
+</head>
+
+<body>
+    <!-- Fixed Alert Section -->
+    <div id="channelAlert" style="display: none;"></div>
+    
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                🤖 Forwarder-WhatsApp Bot
+            </a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Home</a>
+                <a href="/whatsapp-config.html" class="nav-btn">🤖 WhatsApp Config</a>
+                <a href="/telegramConfig.html" class="nav-btn">💬 Telegram Config</a>
+                <a href="/twitterConfig.html" class="nav-btn active">🐦 Twitter Config</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h1>🐦 Twitter Configuration</h1>
+            <p>Configure Twitter account monitoring and WhatsApp forwarding</p>
+        </header>
+
+        <!-- Status Section -->
+        <div class="status-section">
+            <h2>Status</h2>
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3>Twitter Client</h3>
+                    <div class="status-indicator" id="twitterStatus">
+                        <span class="status-dot" id="twitterStatusDot"></span>
+                        <span id="twitterStatusText">Checking...</span>
+                    </div>
+                    <div class="status-actions">
+                        <button id="initTwitterBtn" class="btn btn-primary" disabled>Initialize</button>
+                        <button id="restartTwitterBtn" class="btn btn-secondary" disabled>Restart</button>
+                        <button id="disconnectTwitterBtn" class="btn btn-danger" disabled>Disconnect</button>
+                    </div>
+                </div>
+                
+                <div class="status-card">
+                    <h3>Forwarding</h3>
+                    <div class="status-indicator" id="forwardingStatus">
+                        <span class="status-dot" id="forwardingStatusDot"></span>
+                        <span id="forwardingStatusText">Checking...</span>
+                    </div>
+                    <div class="status-actions">
+                        <button id="startForwardingBtn" class="btn btn-success" disabled>Start Forwarding</button>
+                        <button id="stopForwardingBtn" class="btn btn-danger" disabled>Stop Forwarding</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Account Management Section -->
+        <div class="account-section">
+            <h2>Account Management</h2>
+            
+            <!-- Search Section -->
+            <div class="search-section">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Search for Twitter accounts..." class="search-input">
+                    <button id="searchBtn" class="btn btn-primary">Search</button>
+                </div>
+                <div id="searchResults" class="search-results"></div>
+            </div>
+
+            <!-- Listening Accounts -->
+            <div class="listening-section">
+                <h3>Currently Listening To</h3>
+                <div id="listeningAccounts" class="accounts-list">
+                    <div class="loading">Loading accounts...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Section
+        <div class="config-section">
+            <h2>Configuration</h2>
+            <div class="config-grid">
+                <div class="config-item">
+                    <label for="isActiveToggle">Enable Twitter Forwarding</label>
+                    <div class="toggle-container">
+                        <input type="checkbox" id="isActiveToggle" class="toggle-input">
+                        <label for="isActiveToggle" class="toggle-label">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div> -->
+    </div>
+
+    <script>
+        // Global variables
+        let twitterReady = false;
+        let whatsappReady = false;
+        let forwardingActive = false;
+        let currentAccounts = [];
+
+        // DOM elements
+        const twitterStatusDot = document.getElementById('twitterStatusDot');
+        const twitterStatusText = document.getElementById('twitterStatusText');
+        const whatsappStatusDot = document.getElementById('whatsappStatusDot');
+        const whatsappStatusText = document.getElementById('whatsappStatusText');
+        const forwardingStatusDot = document.getElementById('forwardingStatusDot');
+        const forwardingStatusText = document.getElementById('forwardingStatusText');
+        
+        const initTwitterBtn = document.getElementById('initTwitterBtn');
+        const restartTwitterBtn = document.getElementById('restartTwitterBtn');
+        const disconnectTwitterBtn = document.getElementById('disconnectTwitterBtn');
+        const startForwardingBtn = document.getElementById('startForwardingBtn');
+        const stopForwardingBtn = document.getElementById('stopForwardingBtn');
+        
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const searchResults = document.getElementById('searchResults');
+        const listeningAccounts = document.getElementById('listeningAccounts');
+        const isActiveToggle = document.getElementById('isActiveToggle');
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatus();
+            loadListeningAccounts();
+            loadConfiguration();
+            
+            // Set up event listeners
+            initTwitterBtn.addEventListener('click', initializeTwitter);
+            restartTwitterBtn.addEventListener('click', restartTwitter);
+            disconnectTwitterBtn.addEventListener('click', disconnectTwitter);
+            startForwardingBtn.addEventListener('click', startForwarding);
+            stopForwardingBtn.addEventListener('click', stopForwarding);
+            searchBtn.addEventListener('click', searchAccounts);
+            searchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchAccounts();
+                }
+            });
+            // isActiveToggle.addEventListener('change', updateConfiguration);
+        });
+
+        // Load status
+        async function loadStatus() {
+            try {
+                // Load Twitter status
+                const twitterResponse = await fetch('/twitter/status');
+                const twitterData = await twitterResponse.json();
+                twitterReady = twitterData.isReady;
+                updateTwitterStatus(twitterReady);
+
+                // Load forwarding status
+                const forwardingResponse = await fetch('/twitter/forwarding-status');
+                const forwardingData = await forwardingResponse.json();
+                forwardingActive = forwardingData.isActive;
+                updateForwardingStatus(forwardingActive);
+
+            } catch (error) {
+                console.error('Error loading status:', error);
+                showAlert('Error loading status', 'error');
+            }
+        }
+
+        // Update Twitter status display
+        function updateTwitterStatus(isReady) {
+            if (isReady) {
+                twitterStatusDot.className = 'status-dot status-online';
+                twitterStatusText.textContent = 'Connected';
+                initTwitterBtn.disabled = true;
+                restartTwitterBtn.disabled = false;
+                disconnectTwitterBtn.disabled = false;
+            } else {
+                twitterStatusDot.className = 'status-dot status-offline';
+                twitterStatusText.textContent = 'Disconnected';
+                initTwitterBtn.disabled = false;
+                restartTwitterBtn.disabled = true;
+                disconnectTwitterBtn.disabled = true;
+            }
+        }
+
+        // Update forwarding status display
+        function updateForwardingStatus(isActive) {
+            if (isActive) {
+                forwardingStatusDot.className = 'status-dot status-online';
+                forwardingStatusText.textContent = 'Active';
+                startForwardingBtn.disabled = true;
+                stopForwardingBtn.disabled = false;
+            } else {
+                forwardingStatusDot.className = 'status-dot status-offline';
+                forwardingStatusText.textContent = 'Inactive';
+                startForwardingBtn.disabled = !twitterReady;
+                stopForwardingBtn.disabled = true;
+            }
+        }
+
+        // Initialize Twitter
+        async function initializeTwitter() {
+            try {
+                initTwitterBtn.disabled = true;
+                initTwitterBtn.textContent = 'Initializing...';
+                
+                const response = await fetch('/twitter/initialize', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    twitterReady = true;
+                    updateTwitterStatus(true);
+                    showAlert('Twitter client initialized successfully', 'success');
+                    loadStatus(); // Refresh all status
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error initializing Twitter:', error);
+                showAlert('Error initializing Twitter client', 'error');
+            } finally {
+                initTwitterBtn.disabled = false;
+                initTwitterBtn.textContent = 'Initialize';
+            }
+        }
+
+        // Restart Twitter
+        async function restartTwitter() {
+            try {
+                restartTwitterBtn.disabled = true;
+                restartTwitterBtn.textContent = 'Restarting...';
+                
+                const response = await fetch('/twitter/restart', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Twitter client restarted successfully', 'success');
+                    loadStatus(); // Refresh all status
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting Twitter:', error);
+                showAlert('Error restarting Twitter client', 'error');
+            } finally {
+                restartTwitterBtn.disabled = false;
+                restartTwitterBtn.textContent = 'Restart';
+            }
+        }
+
+        // Disconnect Twitter
+        async function disconnectTwitter() {
+            try {
+                disconnectTwitterBtn.disabled = true;
+                disconnectTwitterBtn.textContent = 'Disconnecting...';
+                
+                const response = await fetch('/twitter/disconnect', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    twitterReady = false;
+                    updateTwitterStatus(false);
+                    showAlert('Twitter client disconnected successfully', 'success');
+                    loadStatus(); // Refresh all status
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error disconnecting Twitter:', error);
+                showAlert('Error disconnecting Twitter client', 'error');
+            } finally {
+                disconnectTwitterBtn.disabled = false;
+                disconnectTwitterBtn.textContent = 'Disconnect';
+            }
+        }
+
+        // Start forwarding
+        async function startForwarding() {
+            try {
+                startForwardingBtn.disabled = true;
+                startForwardingBtn.textContent = 'Starting...';
+                
+                const response = await fetch('/twitter/start-forwarding', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    forwardingActive = true;
+                    updateForwardingStatus(true);
+                    showAlert('Twitter forwarding started successfully', 'success');
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error starting forwarding:', error);
+                showAlert('Error starting Twitter forwarding', 'error');
+            } finally {
+                startForwardingBtn.disabled = false;
+                startForwardingBtn.textContent = 'Start Forwarding';
+            }
+        }
+
+        // Stop forwarding
+        async function stopForwarding() {
+            try {
+                stopForwardingBtn.disabled = true;
+                stopForwardingBtn.textContent = 'Stopping...';
+                
+                const response = await fetch('/twitter/stop-forwarding', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    forwardingActive = false;
+                    updateForwardingStatus(false);
+                    showAlert('Twitter forwarding stopped successfully', 'success');
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error stopping forwarding:', error);
+                showAlert('Error stopping Twitter forwarding', 'error');
+            } finally {
+                stopForwardingBtn.disabled = false;
+                stopForwardingBtn.textContent = 'Stop Forwarding';
+            }
+        }
+
+        // Search accounts
+        async function searchAccounts() {
+            const query = searchInput.value.trim();
+            if (!query) {
+                showAlert('Please enter a username to search', 'error');
+                return;
+            }
+
+            try {
+                searchBtn.disabled = true;
+                searchBtn.textContent = 'Searching...';
+                searchResults.innerHTML = '<div class="loading">Searching...</div>';
+
+                const response = await fetch(`/twitter/search-accounts?query=${encodeURIComponent(query)}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    displaySearchResults(data.accounts);
+                } else {
+                    searchResults.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                console.error('Error searching accounts:', error);
+                searchResults.innerHTML = '<div class="error">Error searching accounts</div>';
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = 'Search';
+            }
+        }
+
+        // Display search results
+        function displaySearchResults(accounts) {
+            if (accounts.length === 0) {
+                searchResults.innerHTML = '<div class="no-results">No accounts found</div>';
+                return;
+            }
+
+            const resultsHtml = accounts.map(account => `
+                <div class="account-item">
+                    <div class="account-info">
+                        <div class="account-name">${account.name || 'Unknown'}</div>
+                        <div class="account-username">@${account.username}</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="addAccount('${account.id}', '${account.username}', '${account.name || ''}')">
+                        Add
+                    </button>
+                </div>
+            `).join('');
+
+            searchResults.innerHTML = resultsHtml;
+        }
+
+        // Add account
+        async function addAccount(id, username, name) {
+            try {
+                const response = await fetch('/twitter/listen', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        accounts: [{
+                            id: id,
+                            username: username,
+                            name: name
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert(`Added @${username} to listening list`, 'success');
+                    loadListeningAccounts();
+                    searchInput.value = '';
+                    searchResults.innerHTML = '';
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error adding account:', error);
+                showAlert('Error adding account', 'error');
+            }
+        }
+
+        // Load listening accounts
+        async function loadListeningAccounts() {
+            try {
+                const response = await fetch('/twitter/listening-accounts');
+                const data = await response.json();
+
+                if (data.success) {
+                    currentAccounts = data.accounts;
+                    displayListeningAccounts(data.accounts);
+                } else {
+                    listeningAccounts.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                console.error('Error loading listening accounts:', error);
+                listeningAccounts.innerHTML = '<div class="error">Error loading accounts</div>';
+            }
+        }
+
+        // Display listening accounts
+        function displayListeningAccounts(accounts) {
+            if (accounts.length === 0) {
+                listeningAccounts.innerHTML = '<div class="no-accounts">No accounts being monitored</div>';
+                return;
+            }
+
+            const accountsHtml = accounts.map(account => `
+                <div class="account-item">
+                    <div class="account-info">
+                        <div class="account-name">${account.name || 'Unknown'}</div>
+                        <div class="account-username">@${account.username}</div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="removeAccount('${account.id}')">
+                        Remove
+                    </button>
+                </div>
+            `).join('');
+
+            listeningAccounts.innerHTML = accountsHtml;
+        }
+
+        // Remove account
+        async function removeAccount(id) {
+            try {
+                const response = await fetch('/twitter/stop-listening', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        accountIds: [id]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('Account removed from listening list', 'success');
+                    loadListeningAccounts();
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error removing account:', error);
+                showAlert('Error removing account', 'error');
+            }
+        }
+
+        // Load configuration
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/config');
+                const data = await response.json();
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+            }
+        }
+
+        // Update configuration
+        // async function updateConfiguration() {
+        //     try {
+        //         const response = await fetch('/config', {
+        //             method: 'POST',
+        //             headers: {
+        //                 'Content-Type': 'application/json'
+        //             },
+        //             body: JSON.stringify({
+        //                 isActive: isActiveToggle.checked
+        //             })
+        //         });
+
+        //         const data = await response.json();
+
+        //         if (data.success) {
+        //             showAlert('Configuration updated successfully', 'success');
+        //         } else {
+        //             showAlert(`Error: ${data.error}`, 'error');
+        //             // Revert toggle
+        //             isActiveToggle.checked = !isActiveToggle.checked;
+        //         }
+        //     } catch (error) {
+        //         console.error('Error updating configuration:', error);
+        //         showAlert('Error updating configuration', 'error');
+        //         // Revert toggle
+        //         isActiveToggle.checked = !isActiveToggle.checked;
+        //     }
+        // }
+
+        // Show alert
+        function showAlert(message, type) {
+            const alert = document.getElementById('channelAlert');
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+
+</html>
+
