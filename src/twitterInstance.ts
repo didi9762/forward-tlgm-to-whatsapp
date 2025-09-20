@@ -375,7 +375,9 @@ export class TwitterInstance {
             }
 
             const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
-            this.setLastSinceId(lastTweet?.id || '');
+            if(lastTweet?.id){
+               this.setLastSinceId(lastTweet.id);
+	    }
 
         } catch (error: any) {
             if (error.code === 429 && error.rateLimit) {
