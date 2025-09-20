@@ -287,6 +287,8 @@ export class WhatsAppInstance {
         } catch (error) {
             console.error('Error resetting WhatsApp instance:', error);
             throw error;
+        }finally{
+            this.isRestarting = false
         }
     }
 
@@ -303,10 +305,14 @@ export class WhatsAppInstance {
                 return 'WhatsApp groups are not ready yet try again in few seconds or minutes';
             }
 
+            if (this.isRestarting) {
+                return 'WhatsApp client is restarting';
+            }
+
             const chats = await this.client.getChats();
             const groups = chats.filter(chat => chat.isGroup) as GroupChat[];
             
-            console.log(`Found ${groups.length} groups`);
+            // console.log(`Found ${groups.length} groups`);
             return groups;
         } catch (error) {
             console.error('Error getting groups:', error);
@@ -326,13 +332,17 @@ export class WhatsAppInstance {
                 throw new Error('WhatsApp client is not initialized');
             }
 
+            if (this.isRestarting) {
+                throw new Error('WhatsApp client is restarting');
+            }
+
             const group = await this.findGroup(groupId);
             if (!group) {
                 throw new Error(`Group not found: ${groupId}`);
             }
 
             await this.client.sendMessage(group.id._serialized, message);
-            console.log(`Text message sent to group: ${group.name}`);
+            console.log(`[WhatsApp] Text message sent to group: ${group.name}`);
         } catch (error) {
             console.error('Error sending text message to group:', error);
             await this.handleError(error, 'sendTextToGroup');
@@ -358,6 +368,10 @@ export class WhatsAppInstance {
                 throw new Error('WhatsApp client is not initialized');
             }
 
+            if (this.isRestarting) {
+                throw new Error('WhatsApp client is restarting');
+            }
+
             const group = await this.findGroup(groupId);
             if (!group) {
                 throw new Error(`Group not found: ${groupId}`);
@@ -375,7 +389,7 @@ export class WhatsAppInstance {
             }
 
             await this.client.sendMessage(group.id._serialized, media, { caption });
-            console.log(`Media message sent to group: ${group.name}`);
+            console.log(`[WhatsApp] Media message sent to group: ${group.name}`);
         } catch (error) {
             console.error('Error sending media message to group:', error);
             await this.handleError(error, 'sendMediaToGroup');
@@ -420,6 +434,10 @@ export class WhatsAppInstance {
      */
     private async findGroup(identifier: string): Promise<GroupChat | null> {
         try {
+            if (this.isRestarting) {
+                throw new Error('WhatsApp client is restarting');
+            }
+
             const groups = await this.getGroups();
 
             if (typeof groups === 'string') {
@@ -454,6 +472,10 @@ export class WhatsAppInstance {
             if (!this.isInitialized) {
                 throw new Error('WhatsApp client is not initialized');
             }
+
+            if (this.isRestarting) {
+                throw new Error('WhatsApp client is restarting');
+            }
             
             return await this.client.getState();
         } catch (error) {
@@ -472,14 +494,14 @@ export class WhatsAppInstance {
             this.isInitialized = false;
             
             // Clean up singleton lock after destroy
-            this.cleanupSingletonLock();
+            // this.cleanupSingletonLock();
             
             console.log('WhatsApp client destroyed');
         } catch (error) {
             console.error('Error destroying client:', error);
             
             // Try to clean up singleton lock even if destroy failed
-            this.cleanupSingletonLock();
+            // this.cleanupSingletonLock();
             
             throw error;
         }
@@ -499,6 +521,10 @@ export class WhatsAppInstance {
             if (!pupPage) {
                 console.log('Puppeteer page not available for screenshot');
                 return '';
+            }
+
+            if (this.isRestarting) {
+                return 'WhatsApp client is restarting';
             }
 
             // Set a larger viewport to capture more content
@@ -564,7 +590,7 @@ export class WhatsAppInstance {
 
         // Add change_state event handler for additional monitoring
         this.client.on('change_state', (state) => {
-            console.log('WhatsApp client state changed:', state);
+            console.log('[WhatsApp] client state changed:', state);
             if (state === 'CONFLICT' || state === 'UNPAIRED') {
                 this.isInitialized = false;
                 this.groupsReady = false;

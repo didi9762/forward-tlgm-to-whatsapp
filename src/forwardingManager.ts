@@ -53,13 +53,13 @@ class ForwardingManager {
 
             // Create message handler for this config
             const messageHandler = async (message: TelegramMessage) => {
-                console.log(`ForwardingManager: Checking message from channel ${message.channelId}`);
-                console.log(`ForwardingManager: Config sources:`, config.telegramChannelIds);
+                // console.log(`ForwardingManager: Checking message from channel ${message.channelId}`);
+                // console.log(`ForwardingManager: Config sources:`, config.telegramChannelIds);
                 
                 // Check if this message is from one of the sources in this config
                 const fixedId = message.channelId.startsWith('-100')?message.channelId.replace('-100', ''):message.channelId.replace('-', '');
                 if (config.telegramChannelIds.includes(fixedId)) {
-                    console.log(`ForwardingManager: Message matches config ${config.id}, forwarding to WhatsApp`);
+                    // console.log(`ForwardingManager: Message matches config ${config.id}, forwarding to WhatsApp`);
                     try {
                         await this.forwardMessageToWhatsApp(message, config);
                         console.log(`ForwardingManager: Message forwarded successfully`);
@@ -222,7 +222,7 @@ class ForwardingManager {
 
             // Handle media messages
             if (message.hasMedia && message.mediaBuffer) {
-                console.log(`Forwarding media: ${message.mediaFileName}`);
+                console.log(`[ForwardingManager] Forwarding media: ${message.mediaFileName}`);
                 
                 // Create a temporary file path or use base64
                 const tempDir = path.join(process.cwd(), 'temp');
@@ -273,7 +273,7 @@ class ForwardingManager {
                 await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
             }
             
-            console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via config: ${config.id}`);
+            // console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via config: ${config.id}`);
 
         } catch (error) {
             console.error('Error forwarding message to WhatsApp:', error);

@@ -102,7 +102,7 @@ export class TelegramInstance {
         const configChannels = configManager.getTelegramChannelIds();
         this.listeningChannels = new Set(configChannels);
         if (configChannels.length > 0) {
-            console.log(`Loaded ${configChannels.length} listening channels from config:`, configChannels);
+            // console.log(`Loaded ${configChannels.length} listening channels from config:`, configChannels);
         }
     }
 
@@ -305,7 +305,7 @@ export class TelegramInstance {
                 throw new Error('Telegram client is not initialized');
             }
 
-            console.log('Fetching channels and groups...');
+            // console.log('Fetching channels and groups...');
             const dialogs = await this.client.getDialogs({});
             const channels: TelegramChannel[] = [];
 
@@ -327,7 +327,7 @@ export class TelegramInstance {
                 }
             }
 
-            console.log(`Found ${channels.length} channels and groups`);
+            // console.log(`Found ${channels.length} channels and groups`);
             return channels;
         } catch (error) {
             console.error('Error getting channels and groups:', error);
@@ -531,7 +531,7 @@ export class TelegramInstance {
                 const chatId = message.chatId?.value?.toString() || message.chatId?.toString();
                 const fixedId = chatId.startsWith('-100')?chatId.replace('-100', ''):chatId.replace('-', '');
                 if (!chatId || !this.listeningChannels.has(fixedId)) return;
-                console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
+                // console.log('message form:', message.chatId?.value?.toString() || message.chatId?.toString());
                 if(!this.messageHandlers.length) return;
 
                 let titel = ''
@@ -567,14 +567,14 @@ export class TelegramInstance {
                     }
                 }
 
-                console.log(`New message from ${telegramMessage.channelTitle}: ${telegramMessage.text.substring(0, 100)}${telegramMessage.text.length > 100 ? '...' : ''}`);
-                console.log(`Channel ID: ${telegramMessage.channelId}`);
-                console.log(`Number of message handlers: ${this.messageHandlers.length}`);
+                // console.log(`New message from ${telegramMessage.channelTitle}: ${telegramMessage.text.substring(0, 100)}${telegramMessage.text.length > 100 ? '...' : ''}`);
+                // console.log(`Channel ID: ${telegramMessage.channelId}`);
+                // console.log(`Number of message handlers: ${this.messageHandlers.length}`);
 
                 // Call all message handlers
                 this.messageHandlers.forEach((handler, index) => {
                     try {
-                        console.log(`Calling message handler ${index + 1}/${this.messageHandlers.length}`);
+                        // console.log(`Calling message handler ${index + 1}/${this.messageHandlers.length}`);
                         handler(telegramMessage);
                         console.log(`Message handler ${index + 1} completed successfully`);
                     } catch (error) {
@@ -762,7 +762,7 @@ export class TelegramInstance {
                 return null;
             }
 
-            console.log('Downloading media from Telegram...');
+            // console.log('Downloading media from Telegram...');
             const buffer = await this.client.downloadMedia(message, {});
             
             if (!buffer) {
@@ -826,11 +826,11 @@ export class TelegramInstance {
         this.keepAliveInterval = setInterval(async () => {
             try {
                 if (this.isInitialized && this.client && this.hasActiveForwardingRules()) {
-                    console.log('Sending keep-alive ping to Telegram...');
+                    // console.log('Sending keep-alive ping to Telegram...');
                     await this.client.invoke(new Api.Ping({
                         pingId: helpers.generateRandomBigInt()
                     }));
-                    console.log('Keep-alive ping sent successfully');
+                    // console.log('Keep-alive ping sent successfully');
                     this.reconnectAttempts = 0; // Reset reconnect attempts on successful ping
                 }
             } catch (error) {
