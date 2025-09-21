@@ -28,6 +28,8 @@ export class TwitterInstance {
     private isInitialized: boolean = false;
     private isStreaming: boolean = false;
     private currentStream: any = null;
+    private pollingInterval: NodeJS.Timeout | null = null;
+    private readonly POLLING_INTERVAL_MS = 16 * 60 * 1000; // 15 minutes
     private listeningAccounts: Set<string> = new Set();
     private messageHandlers: ((message: TwitterMessage) => void)[] = [];
     private reconnectAttempts: number = 0;
@@ -279,14 +281,21 @@ export class TwitterInstance {
      * Start polling for new tweets
      */
     private startPolling(): void {
-        // Poll every 30 seconds for new tweets
-        this.currentStream = setInterval(async () => {
+        // Clear any existing interval
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
+        
+        console.log(`Starting Twitter polling with 16-minute intervals...`);
+        
+        // Poll every 15 minutes for new tweets
+        this.pollingInterval = setInterval(async () => {
             try {
                 await this.fetchRecentTweetsFromUsers();
             } catch (error) {
                 console.error('Error checking for new tweets:', error);
             }
-        }, 1000 * 60 * 2); // 5 minutes
+        }, this.POLLING_INTERVAL_MS);
     }
 
     /**
@@ -338,7 +347,7 @@ export class TwitterInstance {
         }
     }
 
-    private async fetchRecentTweetsFromUsers(sinceMinutes = 3): Promise<void> {
+    private async fetchRecentTweetsFromUsers(sinceMinutes = 16): Promise<void> {
         if (!this.client) return;
 
         const accounts = this.getListeningAccounts();
@@ -377,11 +386,13 @@ export class TwitterInstance {
             const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
             if(lastTweet?.id){
                this.setLastSinceId(lastTweet.id);
-	    }
+            }
 
         } catch (error: any) {
             if (error.code === 429 && error.rateLimit) {
                 console.error(this.logRateLimitError(error, 'Error fetching tweets:'));
+                // Reset the polling timer to start from when rate limit is released
+                this.handleRateLimitError(error.rateLimit);
             } else {
                 console.error('Error fetching tweets:', error);
             }
@@ -466,6 +477,10 @@ export class TwitterInstance {
         if (this.currentStream) {
             clearInterval(this.currentStream);
             this.currentStream = null;
+        }
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
         }
         this.isStreaming = false;
         console.log('Twitter monitoring stopped');
@@ -659,6 +674,35 @@ export class TwitterInstance {
         }
 
         return `${prefix} Error 429: rate limit reached. Limit=${limit}, Remaining=${remaining}, Reset in ${timeStr}`
+    }
+
+    /**
+     * Handle rate limit error by resetting the polling timer
+     */
+    private handleRateLimitError(rateLimit: any): void {
+        const { reset } = rateLimit;
+        const now = Math.floor(Date.now() / 1000); // current time in seconds
+        const secondsUntilReset = reset - now;
+        
+        if (secondsUntilReset > 0) {
+            console.log(`Rate limit hit. Resetting polling timer to start ${secondsUntilReset} seconds from now...`);
+            
+            // Clear current polling interval
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+            }
+            
+            // Set a timeout to restart polling after rate limit resets
+            setTimeout(() => {
+                console.log('Rate limit period ended. Restarting polling...');
+                this.startPolling();
+            }, (secondsUntilReset + 10) * 1000); // Add 10 seconds buffer
+        } else {
+            // If reset time has already passed, restart polling immediately
+            console.log('Rate limit reset time has passed. Restarting polling immediately...');
+            this.startPolling();
+        }
     }
 }
 
