@@ -406,7 +406,11 @@ class ForwardingManager {
             } else {
                 // Text-only message or media without buffer
                 if (message.hasMedia) {
-                    formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (download failed)`;
+                    if (message.mediaSkippedReason === 'size_limit') {
+                        formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (skipped - file too large >75MB)`;
+                    } else {
+                        formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (download failed)`;
+                    }
                 }
                 
                 // Send text message to WhatsApp group

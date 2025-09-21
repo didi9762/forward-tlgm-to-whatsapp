@@ -194,7 +194,9 @@ export class WhatsAppInstance {
             console.log('Restarting WhatsApp client...');
             this.isRestarting = true;
             
-            await this.client.destroy();
+            // Add timeout wrapper for destroy operation
+            await this.destroyWithTimeout(10000); // 10 second timeout
+            
             this.isInitialized = false;
             console.log('WhatsApp client destroyed, waiting for 1.5 seconds to restart');
             await new Promise(resolve => setTimeout(resolve, 1500));
@@ -230,6 +232,76 @@ export class WhatsAppInstance {
     }
 
     /**
+     * Destroy client with timeout to prevent hanging
+     * @param timeoutMs Timeout in milliseconds
+     */
+    private async destroyWithTimeout(timeoutMs: number = 10000): Promise<void> {
+        return new Promise(async (resolve, reject) => {
+            let isResolved = false;
+            
+            // Set up timeout
+            const timeoutId = setTimeout(() => {
+                if (!isResolved) {
+                    isResolved = true;
+                    console.warn(`Client destroy timed out after ${timeoutMs}ms, forcing cleanup...`);
+                    this.forceCleanup();
+                    resolve();
+                }
+            }, timeoutMs);
+
+            try {
+                // Attempt graceful destroy
+                await this.client.destroy();
+                
+                if (!isResolved) {
+                    isResolved = true;
+                    clearTimeout(timeoutId);
+                    console.log('Client destroyed gracefully');
+                    resolve();
+                }
+            } catch (error) {
+                if (!isResolved) {
+                    isResolved = true;
+                    clearTimeout(timeoutId);
+                    console.warn('Error during client destroy, attempting force cleanup:', error);
+                    this.forceCleanup();
+                    resolve(); // Don't reject, just continue with force cleanup
+                }
+            }
+        });
+    }
+
+    /**
+     * Force cleanup when graceful destroy fails
+     */
+    private forceCleanup(): void {
+        try {
+            // Try to access the puppeteer page and close it forcefully
+            const pupPage = (this.client as any).pupPage;
+            if (pupPage && !pupPage.isClosed()) {
+                pupPage.close().catch(() => {
+                    console.log('Could not close puppeteer page gracefully');
+                });
+            }
+
+            // Try to access the browser instance and close it
+            const browser = (this.client as any).pupBrowser;
+            if (browser) {
+                browser.close().catch(() => {
+                    console.log('Could not close browser gracefully');
+                });
+            }
+
+            // Clean up singleton lock
+            this.cleanupSingletonLock();
+            
+            console.log('Force cleanup completed');
+        } catch (error) {
+            console.log('Error during force cleanup (this is usually fine):', error);
+        }
+    }
+
+    /**
      * Reset WhatsApp instance by deleting auth/cache directories and restarting
      */
     public async resetInstance(): Promise<void> {
@@ -239,7 +311,7 @@ export class WhatsAppInstance {
             
             // First destroy the current client if it exists
             if (this.isInitialized) {
-                await this.client.destroy();
+                await this.destroyWithTimeout(10000); // Use timeout here too
                 this.isInitialized = false;
             }
 
@@ -333,7 +405,8 @@ export class WhatsAppInstance {
             }
 
             if (this.isRestarting) {
-                throw new Error('WhatsApp client is restarting');
+                console.error('WhatsApp client is restarting');
+                return;
             }
 
             const group = await this.findGroup(groupId);
@@ -369,7 +442,8 @@ export class WhatsAppInstance {
             }
 
             if (this.isRestarting) {
-                throw new Error('WhatsApp client is restarting');
+                console.error('WhatsApp client is restarting');
+                return;
             }
 
             const group = await this.findGroup(groupId);
@@ -435,7 +509,8 @@ export class WhatsAppInstance {
     private async findGroup(identifier: string): Promise<GroupChat | null> {
         try {
             if (this.isRestarting) {
-                throw new Error('WhatsApp client is restarting');
+                console.error('WhatsApp client is restarting');
+                return null;
             }
 
             const groups = await this.getGroups();
@@ -474,7 +549,8 @@ export class WhatsAppInstance {
             }
 
             if (this.isRestarting) {
-                throw new Error('WhatsApp client is restarting');
+                console.error('WhatsApp client is restarting');
+                return null;
             }
             
             return await this.client.getState();
@@ -490,18 +566,15 @@ export class WhatsAppInstance {
      */
     public async destroy(): Promise<void> {
         try {
-            await this.client.destroy();
+            await this.destroyWithTimeout(1000 * 5); // Use timeout for regular destroy too
             this.isInitialized = false;
-            
-            // Clean up singleton lock after destroy
-            // this.cleanupSingletonLock();
             
             console.log('WhatsApp client destroyed');
         } catch (error) {
             console.error('Error destroying client:', error);
             
-            // Try to clean up singleton lock even if destroy failed
-            // this.cleanupSingletonLock();
+            // Try force cleanup even if destroy failed
+            this.forceCleanup();
             
             throw error;
         }

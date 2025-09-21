@@ -37,6 +37,7 @@ export interface TelegramMessage {
     mediaBuffer?: Buffer;
     mediaFileName?: string;
     mediaMimeType?: string;
+    mediaSkippedReason?: 'size_limit' | 'download_failed';
 }
 
 export class TelegramInstance {
@@ -557,13 +558,28 @@ export class TelegramInstance {
                     hasMedia: !!message.media
                 };
 
-                // Download media if present
+                // Download media if present, but check size first
                 if (message.media) {
-                    const mediaData = await this.downloadMedia(message);
-                    if (mediaData) {
-                        telegramMessage.mediaBuffer = mediaData.buffer;
-                        telegramMessage.mediaFileName = mediaData.fileName;
-                        telegramMessage.mediaMimeType = mediaData.mimeType;
+                    const mediaSize = this.getMediaSize(message);
+                    const maxSizeBytes = 75 * 1024 * 1024; // 75 MB in bytes
+                    
+                    if (mediaSize && mediaSize > maxSizeBytes) {
+                        console.log(`Skipping media download - file size (${Math.round(mediaSize / (1024 * 1024))} MB) exceeds 75 MB limit. Text will still be forwarded.`);
+                        // Still set media properties but without buffer
+                        telegramMessage.mediaType = this.getMediaType(message);
+                        telegramMessage.hasMedia = true;
+                        telegramMessage.mediaFileName = this.getMediaFileName(message);
+                        telegramMessage.mediaMimeType = this.getMediaMimeType(message);
+                        telegramMessage.mediaSkippedReason = 'size_limit';
+                    } else {
+                        const mediaData = await this.downloadMedia(message);
+                        if (mediaData) {
+                            telegramMessage.mediaBuffer = mediaData.buffer;
+                            telegramMessage.mediaFileName = mediaData.fileName;
+                            telegramMessage.mediaMimeType = mediaData.mimeType;
+                        } else {
+                            telegramMessage.mediaSkippedReason = 'download_failed';
+                        }
                     }
                 }
 
@@ -955,6 +971,75 @@ export class TelegramInstance {
             reconnectAttempts: this.reconnectAttempts,
             isConnected: this.checkConnection()
         };
+    }
+
+    /**
+     * Get media size from message without downloading
+     */
+    private getMediaSize(message: any): number | null {
+        if (!message.media) return null;
+
+        if (message.media.className === 'MessageMediaDocument') {
+            const document = message.media.document;
+            return document.size || null;
+        } else if (message.media.className === 'MessageMediaPhoto') {
+            const photo = message.media.photo;
+            if (photo.sizes && photo.sizes.length > 0) {
+                // Get the largest photo size
+                const largestSize = photo.sizes.reduce((max: any, current: any) => {
+                    return (current.size || 0) > (max.size || 0) ? current : max;
+                });
+                return largestSize.size || null;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Get media filename without downloading
+     */
+    private getMediaFileName(message: any): string {
+        let fileName = `media_${message.id}`;
+        
+        if (message.media.className === 'MessageMediaPhoto') {
+            fileName += '.jpg';
+        } else if (message.media.className === 'MessageMediaDocument') {
+            const document = message.media.document;
+            
+            // Try to get original filename from document attributes
+            if (document.attributes) {
+                for (const attr of document.attributes) {
+                    if (attr.className === 'DocumentAttributeFilename' && attr.fileName) {
+                        return attr.fileName;
+                    }
+                }
+            }
+            
+            // Fallback to mime type extension
+            if (document.mimeType) {
+                const ext = document.mimeType.split('/')[1];
+                if (ext) {
+                    fileName += `.${ext}`;
+                }
+            }
+        }
+        
+        return fileName;
+    }
+
+    /**
+     * Get media mime type without downloading
+     */
+    private getMediaMimeType(message: any): string {
+        if (message.media.className === 'MessageMediaPhoto') {
+            return 'image/jpeg';
+        } else if (message.media.className === 'MessageMediaDocument') {
+            const document = message.media.document;
+            return document.mimeType || 'application/octet-stream';
+        }
+        
+        return 'application/octet-stream';
     }
 }
 
