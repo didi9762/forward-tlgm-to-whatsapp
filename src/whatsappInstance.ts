@@ -596,10 +596,6 @@ export class WhatsAppInstance {
                 return '';
             }
 
-            if (this.isRestarting) {
-                return 'WhatsApp client is restarting';
-            }
-
             // Set a larger viewport to capture more content
             await pupPage.setViewport({
                 width: 1920,
@@ -620,7 +616,7 @@ export class WhatsAppInstance {
 
             return `data:image/png;base64,${screenshot}`;
         } catch (error) {
-            console.error('Error taking screenshot:', error);
+            console.error('Error taking screenshot');
             await this.handleError(error, 'takeScreenshot');
             return '';
         }
