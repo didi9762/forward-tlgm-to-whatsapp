@@ -1,4 +1,4 @@
-const token = process.env.OPENROUTER_TOKEN || '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'
+const token = process.env.OPENROUTER_TOKEN || ''
 console.log('open router token',token);
 
 export async function askModel(myPrompt:string,model:string='anthropic/claude-3.5-sonnet',temperature:number=0.0,retry=0):Promise<string>{   
