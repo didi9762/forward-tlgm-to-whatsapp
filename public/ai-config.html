@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="ai.css">
+    <link rel="stylesheet" href="wa.css">
+    <title>AI Configuration</title>
+</head>
+<body>
+    <!-- Fixed Alert Section -->
+    <div id="alert" style="display: none;"></div>
+    
+    <!-- Navigation Header -->
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                🤖 Forwarder-WhatsApp Bot
+            </a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Home</a>
+                <a href="/whatsapp-config.html" class="nav-btn">📱 WhatsApp Config</a>
+                <a href="/telegramConfig.html" class="nav-btn">💬 Telegram Config</a>
+                <a href="/twitterConfig.html" class="nav-btn">🐦 Twitter Config</a>
+                <a href="/ai-config.html" class="nav-btn active">🤖 AI Config</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Configuration</h1>
+            <p>Manage the system prompt and AI settings used for translating forwarded messages</p>
+        </div>
+
+        <div class="content">
+            <!-- System Prompt Section -->
+            <div class="section full-width">
+                <h2>📝 System Prompt</h2>
+                <p>This prompt will be used to translate and process messages before forwarding them to WhatsApp.</p>
+                
+                <form id="promptForm">
+                    <div class="form-group">
+                        <label for="systemPrompt">System Prompt:</label>
+                        <textarea 
+                            id="systemPrompt" 
+                            name="prompt" 
+                            rows="8" 
+                            placeholder="Enter the system prompt that will be used for message translation..."
+                        ></textarea>
+                        <small class="form-help">This prompt will be sent to the AI model along with each message to be translated. Leave empty to disable translation.</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="loadCurrentPrompt()">
+                            🔄 Load Current
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            💾 Save Prompt
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- AI Settings Section -->
+            <div class="section full-width">
+                <h2>⚙️ AI Settings</h2>
+                <p>Configure the default AI model and temperature settings for message translation.</p>
+                
+                <form id="settingsForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="defaultModel">Default AI Model:</label>
+                            <select id="defaultModel" onchange="toggleManualModel()">
+                                <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                                <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                                <option value="openai/gpt-4o">GPT-4o</option>
+                                <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                <option value="meta-llama/llama-3.1-8b-instruct">Llama 3.1 8B</option>
+                                <option value="manual">Manual Entry</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="defaultTemperature">Default Temperature:</label>
+                            <input type="number" id="defaultTemperature" min="0" max="2" step="0.1" value="0.0">
+                        </div>
+                    </div>
+                    <div class="form-group" id="manualModelGroup" style="display: none;">
+                        <label for="manualModel">Manual Model Name:</label>
+                        <input type="text" id="manualModel" placeholder="e.g., anthropic/claude-3-opus, openai/gpt-3.5-turbo">
+                        <small class="form-help">Enter the exact model name as it appears in OpenRouter</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="loadCurrentSettings()">
+                            🔄 Load Current
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            💾 Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Test Translation Section -->
+            <div class="section full-width">
+                <h2>🧪 Test Translation</h2>
+                <p>Test your system prompt with real AI translation using OpenRouter.</p>
+                
+                <div class="form-group">
+                    <label for="sampleMessage">Test Message:</label>
+                    <textarea 
+                        id="sampleMessage" 
+                        rows="3" 
+                        placeholder="Enter a message to test translation..."
+                    >Hello, this is a test message from Telegram!</textarea>
+                </div>
+                
+                <button type="button" class="btn btn-info" onclick="testTranslation()" id="testBtn">
+                    🚀 Test Translation
+                </button>
+                
+                <div id="testResult" class="preview-result" style="display: none;">
+                    <h4>Translation Result:</h4>
+                    <div id="testContent" class="preview-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPrompt = '';
+        let currentSettings = {};
+
+        // Load current settings on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCurrentPrompt();
+            loadCurrentSettings();
+        });
+
+        // Handle form submissions
+        document.getElementById('promptForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            savePrompt();
+        });
+
+        document.getElementById('settingsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveSettings();
+        });
+
+        function toggleManualModel() {
+            const modelSelect = document.getElementById('defaultModel');
+            const manualGroup = document.getElementById('manualModelGroup');
+            
+            if (modelSelect.value === 'manual') {
+                manualGroup.style.display = 'block';
+                document.getElementById('manualModel').required = true;
+            } else {
+                manualGroup.style.display = 'none';
+                document.getElementById('manualModel').required = false;
+            }
+        }
+
+        function toggleTestManualModel() {
+            const modelSelect = document.getElementById('testModel');
+            const manualGroup = document.getElementById('testManualModelGroup');
+            
+            if (modelSelect.value === 'manual') {
+                manualGroup.style.display = 'block';
+                document.getElementById('testManualModel').required = true;
+            } else {
+                manualGroup.style.display = 'none';
+                document.getElementById('testManualModel').required = false;
+            }
+        }
+
+        async function loadCurrentPrompt() {
+            try {
+                showAlert('Loading current prompt...', 'info');
+                
+                const response = await fetch('/ai/system-prompt');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('systemPrompt').value = data.prompt.prompt;
+                    currentPrompt = data.prompt.prompt;
+                    showAlert('Current prompt loaded successfully', 'success');
+                } else {
+                    showAlert('Error loading prompt: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error loading prompt: ' + error.message, 'error');
+            }
+        }
+
+        async function loadCurrentSettings() {
+            try {
+                const response = await fetch('/ai/system-prompt');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const settings = data.prompt;
+                    currentSettings = settings;
+                    
+                    // Set default model
+                    if (settings.model) {
+                        if (settings.model === 'manual' || !['anthropic/claude-3.5-sonnet', 'anthropic/claude-3-haiku', 'openai/gpt-4o', 'openai/gpt-4o-mini', 'meta-llama/llama-3.1-8b-instruct'].includes(settings.model)) {
+                            document.getElementById('defaultModel').value = 'manual';
+                            document.getElementById('manualModel').value = settings.model;
+                            toggleManualModel();
+                        } else {
+                            document.getElementById('defaultModel').value = settings.model;
+                        }
+                    }
+                    
+                    // Set default temperature
+                    if (settings.temperature !== undefined) {
+                        document.getElementById('defaultTemperature').value = settings.temperature;
+                    }
+                    
+                    // Remove the test settings sync since those elements don't exist
+                    // The test will use the database values directly
+                }
+            } catch (error) {
+                showAlert('Error loading settings: ' + error.message, 'error');
+            }
+        }
+
+        async function savePrompt() {
+            try {
+                const prompt = document.getElementById('systemPrompt').value.trim();
+
+                showAlert('Saving prompt...', 'info');
+                
+                const response = await fetch('/ai/system-prompt', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentPrompt = prompt;
+                    showAlert('System prompt saved successfully!', 'success');
+                } else {
+                    showAlert('Error saving prompt: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error saving prompt: ' + error.message, 'error');
+            }
+        }
+
+        async function saveSettings() {
+            try {
+                const modelSelect = document.getElementById('defaultModel');
+                const manualModel = document.getElementById('manualModel').value.trim();
+                const temperature = parseFloat(document.getElementById('defaultTemperature').value);
+                
+                let model;
+                if (modelSelect.value === 'manual') {
+                    if (!manualModel) {
+                        showAlert('Please enter a manual model name', 'error');
+                        return;
+                    }
+                    model = manualModel;
+                } else {
+                    model = modelSelect.value;
+                }
+
+                showAlert('Saving settings...', 'info');
+                
+                const response = await fetch('/ai/ai-settings', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        model: model, 
+                        temperature: temperature 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentSettings = data.prompt;
+                    showAlert('AI settings saved successfully!', 'success');
+                } else {
+                    showAlert('Error saving settings: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error saving settings: ' + error.message, 'error');
+            }
+        }
+
+        async function testTranslation() {
+            const sampleMessage = document.getElementById('sampleMessage').value.trim();
+            const testBtn = document.getElementById('testBtn');
+            
+            if (!sampleMessage) {
+                showAlert('Please enter a test message', 'error');
+                return;
+            }
+            
+            if (!currentPrompt) {
+                showAlert('Please load or enter a system prompt first', 'error');
+                return;
+            }
+
+            try {
+                // Show loading state
+                testBtn.disabled = true;
+                testBtn.textContent = ' Testing...';
+                // testBtn.classList.add('loading');
+                
+                showAlert('Testing translation with AI model...', 'info');
+                
+                const response = await fetch('/ai/test-translation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: sampleMessage,
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const testContent = `
+                        <div class="translation-section">
+                            <strong>AI Translation:</strong>
+                            <div class="translation-text">${data.data.translation}</div>
+                        </div>
+                        <div class="note-section">
+                            <em>Model: ${data.data.model} | Temperature: ${data.data.temperature}</em>
+                        </div>
+                    `;
+                    
+                    document.getElementById('testContent').innerHTML = testContent;
+                    document.getElementById('testResult').style.display = 'block';
+                    
+                    showAlert('Translation test completed successfully!', 'success');
+                } else {
+                    showAlert('Translation test failed: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('Error testing translation: ' + error.message, 'error');
+            } finally {
+                // Reset button state
+                testBtn.disabled = false;
+                testBtn.textContent = '🚀 Test Translation';
+                // testBtn.classList.remove('loading');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.getElementById('alert');
+            alertDiv.textContent = message;
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                alertDiv.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
+

@@ -2,6 +2,8 @@ import { TelegramInstance, TelegramMessage } from './telegramInstance';
 import { WhatsAppInstance } from './whatsappInstance';
 import { TwitterInstance, TwitterMessage } from './twitterInstance';
 import { ListeningConfig } from './db';
+import { database } from './db';
+import { askModel } from './openRouter';
 import fs from 'fs';
 import path from 'path';
 import { getListeningConfig, getActiveListeningConfigs } from './db';
@@ -32,6 +34,49 @@ class ForwardingManager {
         this.telegramInstance = telegramInstance;
         this.whatsappInstance = whatsappInstance;
         this.twitterInstance = twitterInstance;
+    }
+
+    /**
+     * Get AI settings from database
+     */
+    private async getAISettings(): Promise<{ prompt: string; model: string; temperature: number } | null> {
+        try {
+            const dbResult = await database('system_prompts');
+            if (!dbResult) return null;
+
+            const { conn, coll } = dbResult;
+            
+            try {
+                const settings = await coll.findOne({});
+                if (settings && settings.prompt && settings.prompt.trim()) {
+                    return {
+                        prompt: settings.prompt,
+                        model: settings.model || 'anthropic/claude-3.5-sonnet',
+                        temperature: settings.temperature || 0.0
+                    };
+                }
+                return null;
+            } finally {
+                await conn.close();
+            }
+        } catch (error) {
+            console.error('Error getting AI settings:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Translate message text using AI
+     */
+    private async translateMessage(text: string, aiSettings: { prompt: string; model: string; temperature: number }): Promise<string> {
+        try {
+            const fullPrompt = `${aiSettings.prompt}\n\nMessage to translate: ${text}`;
+            const translation = await askModel(fullPrompt, aiSettings.model, aiSettings.temperature);
+            return translation || text; // Fallback to original text if translation fails
+        } catch (error) {
+            console.error('Error translating message:', error);
+            return text; // Fallback to original text on error
+        }
     }
 
     /**
@@ -345,19 +390,22 @@ class ForwardingManager {
      */
     private async forwardMessageToWhatsApp(message: TelegramMessage, config: ListeningConfig): Promise<void> {
         try {
+            // Get AI settings
+            const aiSettings = await this.getAISettings();
+            
             // Format the message for WhatsApp
             let formattedMessage = `📢 *${message.channelTitle}*\n`;
             
-            // if (message.senderName) {
-            //     formattedMessage += `👤 ${message.senderName}\n`;
-            // }
-            
-            // if (message.isForwarded && message.forwardedFrom) {
-            //     formattedMessage += `🔄 Forwarded from: ${message.forwardedFrom}\n`;
-            // }
-            
             if (message.text) {
-                formattedMessage += `\n${message.text}`;
+                let messageText = message.text;
+                
+                // Translate text if AI settings exist
+                if (aiSettings) {
+                    console.log('Translating message with AI...');
+                    messageText = await this.translateMessage(messageText, aiSettings);
+                }
+                
+                formattedMessage += `\n${messageText}`;
             }
 
             // Handle media messages
@@ -417,7 +465,7 @@ class ForwardingManager {
                 await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
             }
             
-            // console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via config: ${config.id}`);
+            console.log(`Forwarded message from ${message.channelTitle} to WhatsApp group via config: ${config.id}`);
 
         } catch (error) {
             console.error('Error forwarding message to WhatsApp:', error);
@@ -430,6 +478,9 @@ class ForwardingManager {
      */
     private async forwardTwitterMessageToWhatsApp(message: TwitterMessage, config: ListeningConfig): Promise<void> {
         try {
+            // Get AI settings
+            const aiSettings = await this.getAISettings();
+            
             // Format the message for WhatsApp
             let formattedMessage = `🐦 *@${message.authorUsername}* (${message.authorName})\n`;
             
@@ -438,27 +489,20 @@ class ForwardingManager {
             }
             
             if (message.text) {
-                formattedMessage += `\n${message.text}`;
-            }
-
-            // Add hashtags if present
-            if (message.hashtags && message.hashtags.length > 0) {
-                // formattedMessage += `\n\n#${message.hashtags.join(' #')}`;
-            }
-
-            // Add mentions if present
-            if (message.mentions && message.mentions.length > 0) {
-                // formattedMessage += `\n\nMentions: @${message.mentions.join(' @')}`;
-            }
-
-            // Add URLs if present
-            if (message.urls && message.urls.length > 0) {
-                formattedMessage += `\n\nLinks: ${message.urls.join(' ')}`;
+                let messageText = message.text;
+                
+                // Translate text if AI settings exist
+                if (aiSettings) {
+                    console.log('Translating Twitter message with AI...');
+                    messageText = await this.translateMessage(messageText, aiSettings);
+                }
+                
+                formattedMessage += `\n${messageText}`;
             }
 
             // Handle media messages
-            if (message.hasMedia && message.mediaBuffer && message.mediaFileName) {
-                console.log(`[ForwardingManager] Forwarding Twitter media: ${message.mediaType}`);
+            if (message.hasMedia && message.mediaBuffer) {
+                console.log(`[ForwardingManager] Forwarding Twitter media: ${message.mediaFileName}`);
                 
                 // Create a temporary file path
                 const tempDir = path.join(process.cwd(), 'temp');
@@ -466,7 +510,7 @@ class ForwardingManager {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
                 
-                const tempFilePath = path.join(tempDir, message.mediaFileName);
+                const tempFilePath = path.join(tempDir, message.mediaFileName || `twitter_media_${message.id}`);
                 
                 try {
                     // Write media to temporary file

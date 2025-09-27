@@ -5,6 +5,7 @@ import whatsappApi from './whatsappApi';
 import configApi from './configApi';
 import telegramApi from './telegramApi';
 import twitterApi from './twitterApi';
+import aiApi from './aiApi';
 import { configManager } from './configManager';
 
 const app = express();
@@ -23,6 +24,7 @@ app.use('/whatsapp', whatsappApi);
 app.use('/telegram', telegramApi);
 app.use('/twitter', twitterApi);
 app.use('/config', configApi);
+app.use('/ai', aiApi);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -95,6 +97,7 @@ const server = app.listen(Number(PORT), process.env.HOST || '0.0.0.0', () => {
     console.log(`API endpoints available at http://localhost:${PORT}/api/whatsapp`);
     console.log(`Listening config API available at http://localhost:${PORT}/telegram/listening-config/`);
     console.log(`Twitter API available at http://localhost:${PORT}/twitter/`);
+    console.log(`AI API available at http://localhost:${PORT}/ai/`);
     
     // Initialize forwarding after server starts
     initializeForwarding();
