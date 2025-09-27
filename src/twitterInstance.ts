@@ -16,6 +16,11 @@ export interface TwitterMessage {
     mediaType?: 'photo' | 'video' | 'gif';
     hasMedia: boolean;
     mediaUrls?: string[];
+    // Add these new properties for media handling
+    mediaBuffer?: Buffer;
+    mediaFileName?: string;
+    mediaMimeType?: string;
+    mediaSkippedReason?: 'size_limit' | 'download_failed';
     replyToTweetId?: string;
     replyToUserId?: string;
     hashtags?: string[];
@@ -366,6 +371,7 @@ export class TwitterInstance {
                 'media.fields': ['type', 'url', 'preview_image_url'],
                 'expansions': ['author_id', 'attachments.media_keys', 'referenced_tweets.id', 'referenced_tweets.id.author_id'],
                 max_results: 100, // up to 100
+                tweet_mode: 'extended'
             }
             const sinceId = this.getLastSinceId();
 
@@ -400,6 +406,51 @@ export class TwitterInstance {
     }
 
     /**
+     * Download media from URL
+     */
+    private async downloadMedia(url: string, mediaType: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string } | null> {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const buffer = Buffer.from(await response.arrayBuffer());
+            
+            // Check file size (75 MB limit)
+            const maxSizeBytes = 75 * 1024 * 1024; // 75 MB
+            if (buffer.length > maxSizeBytes) {
+                console.log(`Skipping media download - file size (${Math.round(buffer.length / (1024 * 1024))} MB) exceeds 75 MB limit`);
+                return null;
+            }
+
+            // Generate filename based on media type and timestamp
+            const timestamp = Date.now();
+            let fileName: string;
+            let mimeType: string;
+
+            if (mediaType === 'photo') {
+                fileName = `twitter_photo_${timestamp}.jpg`;
+                mimeType = 'image/jpeg';
+            } else if (mediaType === 'video') {
+                fileName = `twitter_video_${timestamp}.mp4`;
+                mimeType = 'video/mp4';
+            } else if (mediaType === 'gif') {
+                fileName = `twitter_gif_${timestamp}.gif`;
+                mimeType = 'image/gif';
+            } else {
+                fileName = `twitter_media_${timestamp}.bin`;
+                mimeType = 'application/octet-stream';
+            }
+
+            return { buffer, fileName, mimeType };
+        } catch (error) {
+            console.error('Error downloading media:', error);
+            return null;
+        }
+    }
+
+    /**
      * Handle incoming tweet
      */
     private async handleTweet(tweet: TweetV2, includes?: any): Promise<void> {
@@ -429,6 +480,26 @@ export class TwitterInstance {
             const mediaType = hasMedia ? this.getMediaType(media[0]) : undefined;
             const mediaUrls = media.map((m: any) => m.url || m.preview_image_url).filter(Boolean);
 
+            // Download media if present
+            let mediaBuffer: Buffer | undefined;
+            let mediaFileName: string | undefined;
+            let mediaMimeType: string | undefined;
+            let mediaSkippedReason: 'size_limit' | 'download_failed' | undefined;
+
+            if (hasMedia && mediaUrls.length > 0 && mediaType) {
+                console.log(`Downloading media for tweet ${tweet.id}: ${mediaType}`);
+                
+                // Try to download the first media file
+                const mediaData = await this.downloadMedia(mediaUrls[0], mediaType);
+                if (mediaData) {
+                    mediaBuffer = mediaData.buffer;
+                    mediaFileName = mediaData.fileName;
+                    mediaMimeType = mediaData.mimeType;
+                } else {
+                    mediaSkippedReason = 'download_failed';
+                }
+            }
+
             // Extract hashtags and mentions
             const hashtags = tweet.entities?.hashtags?.map((h: any) => h.tag) || [];
             const mentions = tweet.entities?.mentions?.map((m: any) => m.username) || [];
@@ -447,6 +518,10 @@ export class TwitterInstance {
                 mediaType: mediaType,
                 hasMedia: hasMedia,
                 mediaUrls: mediaUrls,
+                mediaBuffer: mediaBuffer,
+                mediaFileName: mediaFileName,
+                mediaMimeType: mediaMimeType,
+                mediaSkippedReason: mediaSkippedReason,
                 replyToTweetId: tweet.in_reply_to_user_id ? tweet.referenced_tweets?.find((ref: any) => ref.type === 'replied_to')?.id : undefined,
                 replyToUserId: tweet.in_reply_to_user_id,
                 hashtags: hashtags,

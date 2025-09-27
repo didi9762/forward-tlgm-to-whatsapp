@@ -457,19 +457,72 @@ class ForwardingManager {
             }
 
             // Handle media messages
-            if (message.hasMedia && message.mediaUrls && message.mediaUrls.length > 0) {
-                console.log(`Forwarding Twitter media: ${message.mediaType}`);
+            if (message.hasMedia && message.mediaBuffer && message.mediaFileName) {
+                console.log(`[ForwardingManager] Forwarding Twitter media: ${message.mediaType}`);
                 
-                // For now, just mention the media in the text
-                // In a full implementation, you might want to download and forward the media
-                formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'}`;
-                if (message.mediaUrls.length > 0) {
+                // Create a temporary file path
+                const tempDir = path.join(process.cwd(), 'temp');
+                if (!fs.existsSync(tempDir)) {
+                    fs.mkdirSync(tempDir, { recursive: true });
+                }
+                
+                const tempFilePath = path.join(tempDir, message.mediaFileName);
+                
+                try {
+                    // Write media to temporary file
+                    fs.writeFileSync(tempFilePath, message.mediaBuffer);
+                    
+                    // Determine media type for WhatsApp
+                    let whatsappMediaType: 'image' | 'video' | 'audio' | 'document' = 'document';
+                    if (message.mediaType === 'photo') {
+                        whatsappMediaType = 'image';
+                    } else if (message.mediaType === 'video') {
+                        whatsappMediaType = 'video';
+                    } else if (message.mediaType === 'gif') {
+                        whatsappMediaType = 'image'; // GIFs are treated as images in WhatsApp
+                    }
+                    
+                    // Send media to WhatsApp
+                    await this.whatsappInstance.sendMediaToGroup(
+                        config.whatsappGroupId, 
+                        tempFilePath, 
+                        formattedMessage, // Use formatted message as caption
+                        whatsappMediaType
+                    );
+                    
+                    // Clean up temporary file
+                    fs.unlinkSync(tempFilePath);
+                    
+                } catch (mediaError) {
+                    console.error('Error handling Twitter media file:', mediaError);
+                    // Fall back to text-only message
+                    await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
+                }
+            } else if (message.hasMedia && message.mediaSkippedReason) {
+                // Media was skipped, add note to message
+                if (message.mediaSkippedReason === 'size_limit') {
+                    formattedMessage += `\n\n📎 Media: too large (>75MB)`;
+                } else if (message.mediaSkippedReason === 'download_failed') {
+                    formattedMessage += `\n\n📎 Media: Download failed`;
+                }
+                
+                // Add media URLs as fallback
+                if (message.mediaUrls && message.mediaUrls.length > 0) {
                     formattedMessage += `\n${message.mediaUrls.join('\n')}`;
                 }
+                
+                // Send text message to WhatsApp group
+                await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
+            } else {
+                // No media or media URLs only
+                if (message.hasMedia && message.mediaUrls && message.mediaUrls.length > 0) {
+                    formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'}`;
+                    formattedMessage += `\n${message.mediaUrls.join('\n')}`;
+                }
+                
+                // Send text message to WhatsApp group
+                await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
             }
-            
-            // Send text message to WhatsApp group
-            await this.whatsappInstance.sendMessageToGroup(config.whatsappGroupId, formattedMessage);
             
             console.log(`Forwarded tweet from @${message.authorUsername} to WhatsApp group via config: ${config.id}`);
 
