@@ -390,7 +390,7 @@
                         <div class="account-name">${account.name || 'Unknown'}</div>
                         <div class="account-username">@${account.username}</div>
                     </div>
-                    <button class="btn btn-primary btn-sm" onclick="addAccount('${account.id}', '${account.username}', '${account.name || ''}')">
+                    <button class="btn btn-primary btn-sm" onclick="addAccount('${account.id}', '${account.username}', '${(account.name || '').replace(/'/g, "\\'")}')">
                         Add
                     </button>
                 </div>
