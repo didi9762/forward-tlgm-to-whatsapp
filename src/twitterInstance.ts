@@ -16,7 +16,12 @@ export interface TwitterMessage {
     mediaType?: 'photo' | 'video' | 'gif';
     hasMedia: boolean;
     mediaUrls?: string[];
-    // Add these new properties for media handling
+    // Modified properties for multiple media handling
+    mediaBuffers?: Buffer[];
+    mediaFileNames?: string[];
+    mediaMimeTypes?: string[];
+    mediaSkippedReasons?: ('size_limit' | 'download_failed')[];
+    // Keep single media properties for backward compatibility
     mediaBuffer?: Buffer;
     mediaFileName?: string;
     mediaMimeType?: string;
@@ -34,7 +39,7 @@ export class TwitterInstance {
     private isStreaming: boolean = false;
     private currentStream: any = null;
     private pollingInterval: NodeJS.Timeout | null = null;
-    private readonly POLLING_INTERVAL_MS = 16 * 60 * 1000; // 15 minutes
+    private readonly POLLING_INTERVAL_MS = 1 * 60 * 1000; // 15 minutes
     private listeningAccounts: Set<string> = new Set();
     private messageHandlers: ((message: TwitterMessage) => void)[] = [];
     private reconnectAttempts: number = 0;
@@ -121,7 +126,7 @@ export class TwitterInstance {
                 throw new Error('Twitter client is not initialized');
             }
 
-            console.log(`Searching for accounts: ${query}`);
+            // console.log(`Searching for accounts: ${query}`);
             if (query.startsWith('@')) {
                 query = query.slice(1);
             }
@@ -135,7 +140,7 @@ export class TwitterInstance {
                 name: users.data.name
             }] : [];
 
-            console.log(`Found ${accounts.length} accounts for query: ${query}`);
+            // console.log(`Found ${accounts.length} accounts for query: ${query}`);
             return accounts;
         } catch (error: any) {
             if (error.code === 429 && error.rateLimit) {
@@ -330,13 +335,13 @@ export class TwitterInstance {
                 for await (const tweet of tweets) {
                     // Check if tweet is newer than 3 hours
                     if (!tweet.created_at) {
-                        console.log(`Skipping tweet ${tweet.id} - no creation date`);
+                        // console.log(`Skipping tweet ${tweet.id} - no creation date`);
                         continue;
                     }
 
                     const tweetDate = new Date(tweet.created_at);
                     if (tweetDate < threeHoursAgo) {
-                        console.log(`Skipping tweet from @${tweet.author_id} (${tweet.id}) - older than 3 hours`);
+                        // console.log(`Skipping tweet from @${tweet.author_id} (${tweet.id}) - older than 3 hours`);
                         continue;
                     }
 
@@ -364,20 +369,31 @@ export class TwitterInstance {
         // Cutoff timestamp (sinceMinutes ago)
         const startTime = new Date(Date.now() - sinceMinutes * 60 * 1000).toISOString();
 
+        const params: any = {
+            'tweet.fields': [
+                'id','text','created_at','author_id','public_metrics',
+                'referenced_tweets','entities','attachments',
+                'note_tweet'
+              ],
+            'user.fields': ['id','username','name','verified'],
+            'media.fields': ['type','url','preview_image_url','variants','duration_ms'], // Added 'variants' and 'duration_ms'
+            expansions: [
+                'author_id','attachments.media_keys',
+                'referenced_tweets.id','referenced_tweets.id.author_id'
+              ],
+            max_results: 100, // up to 100,
+        }
+
         try {
-            const params: any = {
-                'tweet.fields': ['id', 'text', 'created_at', 'author_id', 'public_metrics', 'referenced_tweets', 'entities', 'attachments'],
-                'user.fields': ['id', 'username', 'name', 'verified'],
-                'media.fields': ['type', 'url', 'preview_image_url'],
-                'expansions': ['author_id', 'attachments.media_keys', 'referenced_tweets.id', 'referenced_tweets.id.author_id'],
-                max_results: 100, // up to 100
-                tweet_mode: 'extended'
-            }
             const sinceId = this.getLastSinceId();
 
-            if (sinceId) {
+            if (sinceId && this.isSinceIdValid(sinceId)) {
                 params.since_id = sinceId;
             } else {
+                if (sinceId) {
+                    console.log('Stored since_id is too old, using start_time instead');
+                    await this.clearLastSinceId();
+                }
                 params.start_time = startTime;
             }
 
@@ -399,6 +415,31 @@ export class TwitterInstance {
                 console.error(this.logRateLimitError(error, 'Error fetching tweets:'));
                 // Reset the polling timer to start from when rate limit is released
                 this.handleRateLimitError(error.rateLimit);
+            } else if (error.data?.errors?.some((e: any) => e.message?.includes('since_id'))) {
+                // Handle since_id validation error by clearing it and retrying with start_time
+                console.log('since_id validation failed, clearing and retrying with start_time');
+                await this.clearLastSinceId();
+                
+                // Retry the request with start_time instead of since_id
+                try {
+                    const retryParams = { ...params };
+                    delete retryParams.since_id;
+                    retryParams.start_time = startTime;
+                    
+                    const res = await this.client.v2.search(query, retryParams);
+                    // console.log('Fetched tweets from users (retry):', res.tweets.length);
+
+                    for await (const tweet of res) {
+                        await this.handleTweet(tweet, res.includes);
+                    }
+
+                    const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
+                    if(lastTweet?.id){
+                       this.setLastSinceId(lastTweet.id);
+                    }
+                } catch (retryError) {
+                    console.error('Error fetching tweets (retry):', retryError);
+                }
             } else {
                 console.error('Error fetching tweets:', error);
             }
@@ -406,10 +447,51 @@ export class TwitterInstance {
     }
 
     /**
+     * Get the best quality video URL from media variants
+     */
+    private getBestVideoUrl(media: any): string | null {
+        if (!media || !media.variants || !Array.isArray(media.variants)) {
+            return null;
+        }
+
+        // Filter for mp4 videos only and sort by bitrate (highest first)
+        const mp4Variants = media.variants
+            .filter((v: any) => v.content_type === 'video/mp4' && v.url)
+            .sort((a: any, b: any) => (b.bit_rate || 0) - (a.bit_rate || 0));
+
+        if (mp4Variants.length === 0) {
+            return null;
+        }
+
+        // Return the highest quality variant
+        return mp4Variants[0].url;
+    }
+
+    /**
+     * Get media URL (handles photos, videos, and GIFs)
+     */
+    private getMediaUrl(media: any): string | null {
+        if (!media) return null;
+
+        // For photos, use the direct URL
+        if (media.type === 'photo') {
+            return media.url || null;
+        }
+
+        // For videos and animated GIFs, get the best quality from variants
+        if (media.type === 'video' || media.type === 'animated_gif') {
+            return this.getBestVideoUrl(media);
+        }
+
+        return null;
+    }
+
+    /**
      * Download media from URL
      */
     private async downloadMedia(url: string, mediaType: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string } | null> {
         try {
+            console.log(`Downloading ${mediaType} from: ${url}`);
             const response = await fetch(url);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -417,10 +499,10 @@ export class TwitterInstance {
 
             const buffer = Buffer.from(await response.arrayBuffer());
             
-            // Check file size (75 MB limit)
-            const maxSizeBytes = 75 * 1024 * 1024; // 75 MB
+            // Check file size (85 MB limit)
+            const maxSizeBytes = 85 * 1024 * 1024; // 85 MB
             if (buffer.length > maxSizeBytes) {
-                console.log(`Skipping media download - file size (${Math.round(buffer.length / (1024 * 1024))} MB) exceeds 75 MB limit`);
+                console.log(`Skipping media download - file size (${Math.round(buffer.length / (1024 * 1024))} MB) exceeds 85 MB limit`);
                 return null;
             }
 
@@ -436,13 +518,14 @@ export class TwitterInstance {
                 fileName = `twitter_video_${timestamp}.mp4`;
                 mimeType = 'video/mp4';
             } else if (mediaType === 'gif') {
-                fileName = `twitter_gif_${timestamp}.gif`;
-                mimeType = 'image/gif';
+                fileName = `twitter_gif_${timestamp}.mp4`; // Animated GIFs are actually MP4 videos
+                mimeType = 'video/mp4';
             } else {
                 fileName = `twitter_media_${timestamp}.bin`;
                 mimeType = 'application/octet-stream';
             }
 
+            console.log(`Successfully downloaded ${mediaType}: ${fileName} (${Math.round(buffer.length / 1024)} KB)`);
             return { buffer, fileName, mimeType };
         } catch (error) {
             console.error('Error downloading media:', error);
@@ -477,26 +560,48 @@ export class TwitterInstance {
             // Extract media information
             const media = includes?.media || [];
             const hasMedia = media.length > 0;
-            const mediaType = hasMedia ? this.getMediaType(media[0]) : undefined;
-            const mediaUrls = media.map((m: any) => m.url || m.preview_image_url).filter(Boolean);
+            
+            // Get proper media URLs using the new helper method
+            const mediaUrls: string[] = [];
+            for (const m of media) {
+                const url = this.getMediaUrl(m);
+                if (url) {
+                    mediaUrls.push(url);
+                }
+            }
 
-            // Download media if present
-            let mediaBuffer: Buffer | undefined;
-            let mediaFileName: string | undefined;
-            let mediaMimeType: string | undefined;
-            let mediaSkippedReason: 'size_limit' | 'download_failed' | undefined;
+            // Download all media if present
+            const mediaBuffers: Buffer[] = [];
+            const mediaFileNames: string[] = [];
+            const mediaMimeTypes: string[] = [];
+            const mediaSkippedReasons: ('size_limit' | 'download_failed')[] = [];
 
-            if (hasMedia && mediaUrls.length > 0 && mediaType) {
-                console.log(`Downloading media for tweet ${tweet.id}: ${mediaType}`);
+            if (hasMedia && mediaUrls.length > 0) {
+                console.log(`Downloading ${mediaUrls.length} media files for tweet ${tweet.id}`);
                 
-                // Try to download the first media file
-                const mediaData = await this.downloadMedia(mediaUrls[0], mediaType);
-                if (mediaData) {
-                    mediaBuffer = mediaData.buffer;
-                    mediaFileName = mediaData.fileName;
-                    mediaMimeType = mediaData.mimeType;
-                } else {
-                    mediaSkippedReason = 'download_failed';
+                // Download all media files
+                for (let i = 0; i < media.length; i++) {
+                    const mediaItem = media[i];
+                    const mediaUrl = this.getMediaUrl(mediaItem);
+                    const mediaType = this.getMediaType(mediaItem);
+                    
+                    if (mediaUrl && mediaType) {
+                        console.log(`Downloading media ${i + 1}/${media.length} for tweet ${tweet.id}: ${mediaType}`);
+                        
+                        const mediaData = await this.downloadMedia(mediaUrl, mediaType);
+                        if (mediaData) {
+                            mediaBuffers.push(mediaData.buffer);
+                            mediaFileNames.push(mediaData.fileName);
+                            mediaMimeTypes.push(mediaData.mimeType);
+                            console.log(`Successfully downloaded media ${i + 1}: ${mediaData.fileName}`);
+                        } else {
+                            mediaSkippedReasons.push('download_failed');
+                            console.log(`Failed to download media ${i + 1} for tweet ${tweet.id}`);
+                        }
+                    } else {
+                        mediaSkippedReasons.push('download_failed');
+                        console.log(`No valid URL or media type for media ${i + 1} in tweet ${tweet.id}`);
+                    }
                 }
             }
 
@@ -505,23 +610,15 @@ export class TwitterInstance {
             const mentions = tweet.entities?.mentions?.map((m: any) => m.username) || [];
             const urls = tweet.entities?.urls?.map((u: any) => u.expanded_url || u.url) || [];
 
-            // Create Twitter message object
-            const twitterMessage: TwitterMessage = {
+            // Create base message data
+            const baseMessageData = {
                 id: tweet.id,
-                text: tweet.text,
                 date: new Date(tweet.created_at || ''),
                 authorId: author.id,
                 authorName: author.name,
                 authorUsername: author.username,
                 isRetweet: isRetweet || false,
                 retweetedFrom: retweetedFrom,
-                mediaType: mediaType,
-                hasMedia: hasMedia,
-                mediaUrls: mediaUrls,
-                mediaBuffer: mediaBuffer,
-                mediaFileName: mediaFileName,
-                mediaMimeType: mediaMimeType,
-                mediaSkippedReason: mediaSkippedReason,
                 replyToTweetId: tweet.in_reply_to_user_id ? tweet.referenced_tweets?.find((ref: any) => ref.type === 'replied_to')?.id : undefined,
                 replyToUserId: tweet.in_reply_to_user_id,
                 hashtags: hashtags,
@@ -529,16 +626,101 @@ export class TwitterInstance {
                 urls: urls
             };
 
-            console.log(`New tweet from @${twitterMessage.authorUsername}: ${twitterMessage.text.substring(0, 100)}${twitterMessage.text.length > 100 ? '...' : ''}`);
+            if (hasMedia && mediaBuffers.length > 0) {
+                // Send first message with original tweet text and first media
+                const firstMessage: TwitterMessage = {
+                    ...baseMessageData,
+                    text: tweet.note_tweet?.text || tweet.text,
+                    mediaType: this.getMediaType(media[0]),
+                    hasMedia: true,
+                    mediaUrls: [mediaUrls[0]],
+                    mediaBuffer: mediaBuffers[0],
+                    mediaFileName: mediaFileNames[0],
+                    mediaMimeType: mediaMimeTypes[0],
+                    mediaSkippedReason: mediaSkippedReasons[0],
+                    // Keep array properties for backward compatibility
+                    mediaBuffers: [mediaBuffers[0]],
+                    mediaFileNames: [mediaFileNames[0]],
+                    mediaMimeTypes: [mediaMimeTypes[0]],
+                    mediaSkippedReasons: mediaSkippedReasons.length > 0 ? [mediaSkippedReasons[0]] : undefined
+                };
 
-            // Call all message handlers
-            this.messageHandlers.forEach((handler, index) => {
-                try {
-                    handler(twitterMessage);
-                } catch (error) {
-                    console.error(`Error in message handler ${index + 1}:`, error);
+                // console.log(`New tweet from @${firstMessage.authorUsername}: ${firstMessage.text.substring(0, 100)}${firstMessage.text.length > 100 ? '...' : ''}`);
+                console.log(`Tweet contains ${mediaBuffers.length} media file(s) - sending as separate messages`);
+
+                // Call handlers for first message
+                this.messageHandlers.forEach((handler, index) => {
+                    try {
+                        handler(firstMessage);
+                    } catch (error) {
+                        console.error(`Error in message handler ${index + 1} for first message:`, error);
+                    }
+                });
+
+                // Send additional media as separate messages with "📎 @authorUsername - Twitter"
+                for (let i = 1; i < mediaBuffers.length; i++) {
+                    const additionalMessage: TwitterMessage = {
+                        ...baseMessageData,
+                        id: `${tweet.id}_media_${i + 1}`, // Unique ID for additional media
+                        text: `📎 @${author.username} - Twitter`,
+                        mediaType: this.getMediaType(media[i]),
+                        hasMedia: true,
+                        mediaUrls: [mediaUrls[i]],
+                        mediaBuffer: mediaBuffers[i],
+                        mediaFileName: mediaFileNames[i],
+                        mediaMimeType: mediaMimeTypes[i],
+                        mediaSkippedReason: mediaSkippedReasons[i],
+                        // Keep array properties for backward compatibility
+                        mediaBuffers: [mediaBuffers[i]],
+                        mediaFileNames: [mediaFileNames[i]],
+                        mediaMimeTypes: [mediaMimeTypes[i]],
+                        mediaSkippedReasons: mediaSkippedReasons.length > i ? [mediaSkippedReasons[i]] : undefined
+                    };
+
+                    console.log(`Sending additional media ${i + 1}/${mediaBuffers.length} from @${author.username}`);
+
+                    // Call handlers for additional media message
+                    this.messageHandlers.forEach((handler, index) => {
+                        try {
+                            handler(additionalMessage);
+                        } catch (error) {
+                            console.error(`Error in message handler ${index + 1} for additional media ${i + 1}:`, error);
+                        }
+                    });
                 }
-            });
+            } else {
+                // No media or media download failed - send single message
+                const twitterMessage: TwitterMessage = {
+                    ...baseMessageData,
+                    text: tweet.note_tweet?.text || tweet.text,
+                    mediaType: hasMedia ? this.getMediaType(media[0]) : undefined,
+                    hasMedia: hasMedia,
+                    mediaUrls: mediaUrls,
+                    mediaBuffer: undefined,
+                    mediaFileName: undefined,
+                    mediaMimeType: undefined,
+                    mediaSkippedReason: mediaSkippedReasons.length > 0 ? mediaSkippedReasons[0] : undefined,
+                    // Keep array properties for backward compatibility
+                    mediaBuffers: undefined,
+                    mediaFileNames: undefined,
+                    mediaMimeTypes: undefined,
+                    mediaSkippedReasons: mediaSkippedReasons.length > 0 ? mediaSkippedReasons : undefined
+                };
+
+                // console.log(`New tweet from @${twitterMessage.authorUsername}: ${twitterMessage.text.substring(0, 100)}${twitterMessage.text.length > 100 ? '...' : ''}`);
+                if (hasMedia) {
+                    console.log(`Tweet had media but download failed or no media URLs available`);
+                }
+
+                // Call all message handlers
+                this.messageHandlers.forEach((handler, index) => {
+                    try {
+                        handler(twitterMessage);
+                    } catch (error) {
+                        console.error(`Error in message handler ${index + 1}:`, error);
+                    }
+                });
+            }
 
         } catch (error) {
             console.error('Error processing tweet:', error);
@@ -778,6 +960,39 @@ export class TwitterInstance {
             console.log('Rate limit reset time has passed. Restarting polling immediately...');
             this.startPolling();
         }
+    }
+
+    /**
+     * Check if a since_id is likely to be valid (not too old)
+     * Twitter snowflake IDs contain timestamp information
+     */
+    private isSinceIdValid(sinceId: string): boolean {
+        try {
+            // Twitter snowflake ID format: timestamp (41 bits) + machine ID (10 bits) + sequence (12 bits)
+            // Convert to BigInt for proper handling of large numbers
+            const id = BigInt(sinceId);
+            
+            // Extract timestamp from snowflake ID
+            // Twitter epoch starts at 2010-11-04T01:42:54.657Z (1288834974657ms)
+            const twitterEpoch = 1288834974657n;
+            const timestamp = (id >> 22n) + twitterEpoch;
+            
+            // Check if the tweet is from within the last 7 days
+            // Twitter API typically allows since_id from the last 7 days
+            const sevenDaysAgo = BigInt(Date.now() - (7 * 24 * 60 * 60 * 1000));
+            
+            return timestamp >= sevenDaysAgo;
+        } catch (error) {
+            console.log('Error validating since_id:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Clear the stored since_id (used when it becomes too old)
+     */
+    private async clearLastSinceId(): Promise<void> {
+        await configManager.setLastSinceId('');
     }
 }
 

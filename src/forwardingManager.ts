@@ -455,7 +455,7 @@ class ForwardingManager {
                 // Text-only message or media without buffer
                 if (message.hasMedia) {
                     if (message.mediaSkippedReason === 'size_limit') {
-                        formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (skipped - file too large >75MB)`;
+                        formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (skipped - file too large >85MB)`;
                     } else {
                         formattedMessage += `\n\n📎 Media: ${message.mediaType || 'Unknown'} (download failed)`;
                     }
@@ -492,10 +492,10 @@ class ForwardingManager {
                 let messageText = message.text;
                 
                 // Translate text if AI settings exist
-                if (aiSettings) {
-                    console.log('Translating Twitter message with AI...');
-                    messageText = await this.translateMessage(messageText, aiSettings);
-                }
+                // if (aiSettings) {
+                //     console.log('Translating Twitter message with AI...');
+                //     messageText = await this.translateMessage(messageText, aiSettings);
+                // }
                 
                 formattedMessage += `\n${messageText}`;
             }
@@ -505,7 +505,7 @@ class ForwardingManager {
                 console.log(`[ForwardingManager] Forwarding Twitter media: ${message.mediaFileName}`);
                 
                 // Create a temporary file path
-                const tempDir = path.join(process.cwd(), 'temp');
+                const tempDir = path.join(process.cwd(), 'temp', 'twitter');
                 if (!fs.existsSync(tempDir)) {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
@@ -535,7 +535,7 @@ class ForwardingManager {
                     );
                     
                     // Clean up temporary file
-                    fs.unlinkSync(tempFilePath);
+                    // fs.unlinkSync(tempFilePath);
                     
                 } catch (mediaError) {
                     console.error('Error handling Twitter media file:', mediaError);
@@ -545,7 +545,7 @@ class ForwardingManager {
             } else if (message.hasMedia && message.mediaSkippedReason) {
                 // Media was skipped, add note to message
                 if (message.mediaSkippedReason === 'size_limit') {
-                    formattedMessage += `\n\n📎 Media: too large (>75MB)`;
+                    formattedMessage += `\n\n📎 Media: too large (>85MB)`;
                 } else if (message.mediaSkippedReason === 'download_failed') {
                     formattedMessage += `\n\n📎 Media: Download failed`;
                 }

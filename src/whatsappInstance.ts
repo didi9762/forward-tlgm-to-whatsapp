@@ -3,6 +3,21 @@ import * as qrcode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Interface for queue items
+interface QueueItem {
+    id: string;
+    groupId: string;
+    content: string;
+    options?: {
+        type?: 'text' | 'media';
+        caption?: string;
+        mediaType?: 'image' | 'video' | 'audio' | 'document';
+    };
+    timestamp: number;
+    resolve: (value: void | PromiseLike<void>) => void;
+    reject: (reason?: any) => void;
+}
+
 export class WhatsAppInstance {
     private client: Client;
     private groupsReady: boolean = false;
@@ -12,6 +27,11 @@ export class WhatsAppInstance {
     private isRestarting: boolean = false;
     private maxRestartAttempts: number = 3;
     private restartAttempts: number = 0;
+    
+    // Message queue properties
+    private messageQueue: QueueItem[] = [];
+    private isProcessingQueue: boolean = false;
+    private queueProcessingDelay: number = 1000; // 1 second delay between messages
 
     constructor() {
         // Clean up any existing singleton locks before creating client
@@ -33,6 +53,7 @@ export class WhatsAppInstance {
         });
 
         this.setupEventHandlers();
+        this.startQueueProcessor();
     }
 
     /**
@@ -394,11 +415,20 @@ export class WhatsAppInstance {
     }
 
     /**
-     * Send a text message to a group
+     * Send a text message to a group (queued version)
      * @param groupId Group ID (can be group name or ID)
      * @param message Text message to send
      */
     public async sendTextToGroup(groupId: string, message: string): Promise<void> {
+        return this.addToQueue(groupId, message, { type: 'text' });
+    }
+
+    /**
+     * Send a text message to a group directly (used internally by queue)
+     * @param groupId Group ID (can be group name or ID)
+     * @param message Text message to send
+     */
+    private async sendTextToGroupDirectly(groupId: string, message: string): Promise<void> {
         try {
             if (!this.isInitialized) {
                 throw new Error('WhatsApp client is not initialized');
@@ -424,13 +454,33 @@ export class WhatsAppInstance {
     }
 
     /**
-     * Send a media message to a group
+     * Send a media message to a group (queued version)
      * @param groupId Group ID (can be group name or ID)
      * @param mediaPath Path to the media file or base64 data
      * @param caption Optional caption for the media
      * @param mediaType Type of media (image, video, audio, document)
      */
     public async sendMediaToGroup(
+        groupId: string, 
+        mediaPath: string, 
+        caption?: string,
+        mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
+    ): Promise<void> {
+        return this.addToQueue(groupId, mediaPath, { 
+            type: 'media', 
+            caption, 
+            mediaType 
+        });
+    }
+
+    /**
+     * Send a media message to a group directly (used internally by queue)
+     * @param groupId Group ID (can be group name or ID)
+     * @param mediaPath Path to the media file or base64 data
+     * @param caption Optional caption for the media
+     * @param mediaType Type of media (image, video, audio, document)
+     */
+    private async sendMediaToGroupDirectly(
         groupId: string, 
         mediaPath: string, 
         caption?: string,
@@ -472,7 +522,7 @@ export class WhatsAppInstance {
     }
 
     /**
-     * Send message to group (unified method for both text and media)
+     * Send message to group (unified method for both text and media) - queued version
      * @param groupId Group ID or name
      * @param content Message content (text or media path)
      * @param options Additional options
@@ -486,19 +536,7 @@ export class WhatsAppInstance {
             mediaType?: 'image' | 'video' | 'audio' | 'document';
         }
     ): Promise<void> {
-        try {
-            const { type = 'text', caption, mediaType = 'image' } = options || {};
-            
-            if (type === 'media') {
-                await this.sendMediaToGroup(groupId, content, caption, mediaType);
-            } else {
-                await this.sendTextToGroup(groupId, content);
-            }
-        } catch (error) {
-            console.error('Error in sendMessageToGroup:', error);
-            await this.handleError(error, 'sendMessageToGroup');
-            throw error;
-        }
+        return this.addToQueue(groupId, content, options);
     }
 
     /**
@@ -665,6 +703,130 @@ export class WhatsAppInstance {
                 this.groupsReady = false;
             }
         });
+    }
+
+    /**
+     * Start the queue processor
+     */
+    private startQueueProcessor(): void {
+        setInterval(() => {
+            this.processQueue();
+        }, 100); // Check queue every 100ms
+    }
+
+    /**
+     * Process the message queue
+     */
+    private async processQueue(): Promise<void> {
+        if (this.isProcessingQueue || this.messageQueue.length === 0) {
+            return;
+        }
+
+        if (!this.isInitialized || this.isRestarting) {
+            return;
+        }
+
+        this.isProcessingQueue = true;
+
+        try {
+            const queueItem = this.messageQueue.shift();
+            if (!queueItem) {
+                this.isProcessingQueue = false;
+                return;
+            }
+
+            console.log(`[Queue] Processing message ${queueItem.id} for group ${queueItem.groupId}`);
+
+            try {
+                await this.sendMessageDirectly(queueItem.groupId, queueItem.content, queueItem.options);
+                queueItem.resolve();
+                console.log(`[Queue] Message ${queueItem.id} sent successfully`);
+            } catch (error) {
+                console.error(`[Queue] Failed to send message ${queueItem.id}:`, error);
+                queueItem.reject(error);
+            }
+
+            // Wait before processing next message
+            await new Promise(resolve => setTimeout(resolve, this.queueProcessingDelay));
+
+        } catch (error) {
+            console.error('[Queue] Error processing queue:', error);
+        } finally {
+            this.isProcessingQueue = false;
+        }
+    }
+
+    /**
+     * Add message to queue
+     */
+    private addToQueue(
+        groupId: string, 
+        content: string, 
+        options?: {
+            type?: 'text' | 'media';
+            caption?: string;
+            mediaType?: 'image' | 'video' | 'audio' | 'document';
+        }
+    ): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const queueItem: QueueItem = {
+                id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                groupId,
+                content,
+                options,
+                timestamp: Date.now(),
+                resolve,
+                reject
+            };
+
+            this.messageQueue.push(queueItem);
+            console.log(`[Queue] Added message ${queueItem.id} to queue. Queue size: ${this.messageQueue.length}`);
+        });
+    }
+
+    /**
+     * Send message directly (used by queue processor)
+     */
+    private async sendMessageDirectly(
+        groupId: string, 
+        content: string, 
+        options?: {
+            type?: 'text' | 'media';
+            caption?: string;
+            mediaType?: 'image' | 'video' | 'audio' | 'document';
+        }
+    ): Promise<void> {
+        const { type = 'text', caption, mediaType = 'image' } = options || {};
+        
+        if (type === 'media') {
+            await this.sendMediaToGroupDirectly(groupId, content, caption, mediaType);
+        } else {
+            await this.sendTextToGroupDirectly(groupId, content);
+        }
+    }
+
+    /**
+     * Get queue status information
+     */
+    public getQueueStatus(): {
+        queueSize: number;
+        isProcessing: boolean;
+        processingDelay: number;
+    } {
+        return {
+            queueSize: this.messageQueue.length,
+            isProcessing: this.isProcessingQueue,
+            processingDelay: this.queueProcessingDelay
+        };
+    }
+
+    /**
+     * Set queue processing delay
+     * @param delayMs Delay in milliseconds between messages
+     */
+    public setQueueDelay(delayMs: number): void {
+        this.queueProcessingDelay = Math.max(100, delayMs); // Minimum 100ms delay
+        console.log(`[Queue] Processing delay set to ${this.queueProcessingDelay}ms`);
     }
 
     /**
