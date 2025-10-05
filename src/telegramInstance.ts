@@ -561,10 +561,10 @@ export class TelegramInstance {
                 // Download media if present, but check size first
                 if (message.media) {
                     const mediaSize = this.getMediaSize(message);
-                    const maxSizeBytes = 75 * 1024 * 1024; // 75 MB in bytes
+                    const maxSizeBytes = 85 * 1024 * 1024; // 85 MB in bytes
                     
                     if (mediaSize && mediaSize > maxSizeBytes) {
-                        console.log(`Skipping media download - file size (${Math.round(mediaSize / (1024 * 1024))} MB) exceeds 75 MB limit. Text will still be forwarded.`);
+                        console.log(`Skipping media download - file size (${Math.round(mediaSize / (1024 * 1024))} MB) exceeds 85 MB limit. Text will still be forwarded.`);
                         // Still set media properties but without buffer
                         telegramMessage.mediaType = this.getMediaType(message);
                         telegramMessage.hasMedia = true;
