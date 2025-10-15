@@ -32,6 +32,7 @@ export class WhatsAppInstance {
     private messageQueue: QueueItem[] = [];
     private isProcessingQueue: boolean = false;
     private queueProcessingDelay: number = 1000; // 1 second delay between messages
+    private maxQueueSize: number = 100; // Maximum queue size before exit
 
     constructor() {
         // Clean up any existing singleton locks before creating client
@@ -213,6 +214,11 @@ export class WhatsAppInstance {
     public async restart(): Promise<void> {
         try {
             console.log('Restarting WhatsApp client...');
+
+
+            //just exit the process and than the client will be restarted by the constructor
+            process.exit(-1);
+
             this.isRestarting = true;
             
             // Add timeout wrapper for destroy operation
@@ -298,7 +304,7 @@ export class WhatsAppInstance {
     private forceCleanup(): void {
         try {
             // Try to access the puppeteer page and close it forcefully
-            const pupPage = (this.client as any).pupPage;
+            const pupPage = (this.client as Client).pupPage;
             if (pupPage && !pupPage.isClosed()) {
                 pupPage.close().catch(() => {
                     console.log('Could not close puppeteer page gracefully');
@@ -306,7 +312,7 @@ export class WhatsAppInstance {
             }
 
             // Try to access the browser instance and close it
-            const browser = (this.client as any).pupBrowser;
+            const browser = (this.client as Client).pupBrowser;
             if (browser) {
                 browser.close().catch(() => {
                     console.log('Could not close browser gracefully');
@@ -768,6 +774,13 @@ export class WhatsAppInstance {
             mediaType?: 'image' | 'video' | 'audio' | 'document';
         }
     ): Promise<void> {
+        if(!this.isInitialized){
+            throw new Error('WhatsApp client is not initialized');
+        }
+        if (this.messageQueue.length >= this.maxQueueSize) {
+            console.error(`Queue size limit (${this.maxQueueSize}) reached. Exiting process.`);
+            process.exit(-1);
+        }
         return new Promise((resolve, reject) => {
             const queueItem: QueueItem = {
                 id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,

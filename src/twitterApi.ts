@@ -31,7 +31,7 @@ async function attemptAutoStart() {
 async function startForwarding() {
     const config = configManager.getConfigSync();
     
-    if (!config.isActive || !config.whatsappGroupId || config.twitterAccounts.length === 0) {
+    if (!config.whatsappGroupId || config.twitterAccounts.length === 0) {
         console.log('Configuration not ready for Twitter forwarding');
         return false;
     }
@@ -39,13 +39,20 @@ async function startForwarding() {
     const listeningConfig: ListeningConfig = {
         id: 'twitter_config',
         whatsappGroupId: config.whatsappGroupId,
-        telegramChannelIds: [], // Not used for Twitter
-        isActive: config.isActive,
+        telegramChannelIds: [],
+        isActive: true,
         createdAt: config.createdAt,
         lastModified: config.lastModified,
     };
 
-    return await forwardingManager.startTwitterForwardingConfig(listeningConfig, config.twitterAccounts.map(acc => acc.id));
+    const success = await forwardingManager.startTwitterForwardingConfig(listeningConfig, config.twitterAccounts.map(acc => acc.id));
+    
+    // Save forwarding status to DB
+    if (success) {
+        await configManager.setActive(true);
+    }
+    
+    return success;
 }
 
 /**
@@ -139,9 +146,12 @@ router.post('/start-forwarding', async (req, res) => {
 /**
  * Stop forwarding
  */
-router.post('/stop-forwarding', (req, res) => {
+router.post('/stop-forwarding', async (req, res) => {
     try {
         forwardingManager.stopTwitterForwardingConfig('twitter_config');
+        
+        // Save stopped status to DB
+        await configManager.setActive(false);
         
         res.json({ 
             success: true, 

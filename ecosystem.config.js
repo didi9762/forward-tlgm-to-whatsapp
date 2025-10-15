@@ -8,8 +8,8 @@ module.exports = {
     max_memory_restart: '1G',
     // Auto-restart configuration
     restart_delay: 1000,
-    max_restarts: 10,
-    min_uptime: '10s',
+    max_restarts: 4,
+    min_uptime: '20s',
     // Logging
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     // Process management

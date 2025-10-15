@@ -31,7 +31,7 @@ async function attemptAutoStart() {
 async function startForwarding() {
     const config = configManager.getConfigSync();
     
-    if (!config.isActive || !config.whatsappGroupId || config.telegramChannelIds.length === 0) {
+    if (!config.whatsappGroupId || config.telegramChannelIds.length === 0) {
         console.log('Configuration not ready for forwarding');
         return false;
     }
@@ -40,12 +40,19 @@ async function startForwarding() {
         id: 'main_config',
         whatsappGroupId: config.whatsappGroupId,
         telegramChannelIds: config.telegramChannelIds,
-        isActive: config.isActive,
+        isActive: true,
         createdAt: config.createdAt,
         lastModified: config.lastModified
     };
 
-    return await forwardingManager.startForwardingConfig(listeningConfig);
+    const success = await forwardingManager.startForwardingConfig(listeningConfig);
+    
+    // Save forwarding status to DB
+    if (success) {
+        await configManager.setActive(true);
+    }
+    
+    return success;
 }
 
 /**
@@ -140,9 +147,12 @@ router.post('/start-forwarding', async (req, res) => {
 /**
  * Stop forwarding
  */
-router.post('/stop-forwarding', (req, res) => {
+router.post('/stop-forwarding', async (req, res) => {
     try {
         forwardingManager.stopForwardingConfig('main_config');
+        
+        // Save stopped status to DB
+        await configManager.setActive(false);
         
         res.json({ 
             success: true, 
