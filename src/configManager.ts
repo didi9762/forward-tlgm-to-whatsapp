@@ -4,11 +4,19 @@ export interface TwitterAccount {
     id: string;
     username: string;
     name?: string;
+    whatsappGroupIds?: string[]; // Add WhatsApp group IDs for this account
+}
+
+export interface TelegramChannel {
+    id: string;
+    title?: string;
+    whatsappGroupIds?: string[]; // Add WhatsApp group IDs for this channel
 }
 
 export interface AppConfig {
     whatsappGroupId: string;
-    telegramChannelIds: string[];
+    telegramChannelIds: string[]; // Keep for backward compatibility
+    telegramChannels: TelegramChannel[]; // New structured format
     twitterAccounts: TwitterAccount[];
     lastSinceId?: string; // Add this field for Twitter's last checked tweet ID
     isActive: boolean;
@@ -22,6 +30,7 @@ class ConfigManager {
     private defaultConfig: AppConfig = {
         whatsappGroupId: '',
         telegramChannelIds: [],
+        telegramChannels: [],
         twitterAccounts: [],
         lastSinceId: undefined,
         isActive: true,
@@ -204,6 +213,7 @@ class ConfigManager {
             currentIds.push(channelId);
             await this.setTelegramChannelIds(currentIds);
         }
+
     }
 
     /**
@@ -254,6 +264,49 @@ class ConfigManager {
         const currentAccounts = this.getTwitterAccounts();
         const filteredAccounts = currentAccounts.filter(acc => acc.id !== accountId);
         await this.setTwitterAccounts(filteredAccounts);
+    }
+
+    /**
+     * Update WhatsApp groups for a specific Twitter account
+     */
+    public async setTwitterAccountWhatsAppGroups(accountId: string, groupIds: string[]): Promise<void> {
+        const currentAccounts = this.getTwitterAccounts();
+        const accountIndex = currentAccounts.findIndex(acc => acc.id === accountId);
+        
+        if (accountIndex >= 0) {
+            currentAccounts[accountIndex].whatsappGroupIds = groupIds;
+            await this.setTwitterAccounts(currentAccounts);
+        } else {
+            throw new Error(`Twitter account with ID ${accountId} not found`);
+        }
+    }
+
+    /**
+     * Get WhatsApp groups for a specific Twitter account
+     */
+    public getTwitterAccountWhatsAppGroups(accountId: string): string[] {
+        const account = this.config.twitterAccounts.find(acc => acc.id === accountId);
+        return account?.whatsappGroupIds || [];
+    }
+
+    /**
+     * Add WhatsApp group to a specific Twitter account
+     */
+    public async addWhatsAppGroupToTwitterAccount(accountId: string, groupId: string): Promise<void> {
+        const currentGroups = this.getTwitterAccountWhatsAppGroups(accountId);
+        if (!currentGroups.includes(groupId)) {
+            currentGroups.push(groupId);
+            await this.setTwitterAccountWhatsAppGroups(accountId, currentGroups);
+        }
+    }
+
+    /**
+     * Remove WhatsApp group from a specific Twitter account
+     */
+    public async removeWhatsAppGroupFromTwitterAccount(accountId: string, groupId: string): Promise<void> {
+        const currentGroups = this.getTwitterAccountWhatsAppGroups(accountId);
+        const filteredGroups = currentGroups.filter(id => id !== groupId);
+        await this.setTwitterAccountWhatsAppGroups(accountId, filteredGroups);
     }
 
     /**
@@ -316,6 +369,104 @@ class ConfigManager {
     public async setLastSinceId(sinceId: string): Promise<void> {
         await this.updateConfig({ lastSinceId: sinceId });
     }
+
+    /**
+     * Get Telegram channels (structured)
+     */
+    public getTelegramChannels(): TelegramChannel[] {
+        return [...this.config.telegramChannels];
+    }
+
+    /**
+     * Set Telegram channels (structured)
+     */
+    public async setTelegramChannels(channels: TelegramChannel[]): Promise<void> {
+        await this.updateConfig({ 
+            telegramChannels: channels,
+            telegramChannelIds: channels.map(ch => ch.id) // Keep IDs in sync
+        });
+    }
+
+    /**
+     * Add Telegram channel
+     */
+    public async addTelegramChannel(channel: TelegramChannel): Promise<void> {
+        const currentChannels = this.getTelegramChannels();
+        const existingIndex = currentChannels.findIndex(ch => ch.id === channel.id);
+        
+        if (existingIndex >= 0) {
+            currentChannels[existingIndex] = channel;
+        } else {
+            currentChannels.push(channel);
+        }
+        
+        await this.setTelegramChannels(currentChannels);
+    }
+
+    /**
+     * Remove Telegram channel
+     */
+    public async removeTelegramChannel(channelId: string): Promise<void> {
+        const currentChannels = this.getTelegramChannels();
+        const filteredChannels = currentChannels.filter(ch => ch.id !== channelId);
+        await this.setTelegramChannels(filteredChannels);
+    }
+
+    /**
+     * Set WhatsApp groups for a specific Telegram channel
+     */
+    public async setTelegramChannelWhatsAppGroups(channelId: string, groupIds: string[]): Promise<void> {
+        const currentChannels = this.getTelegramChannels();
+        const channelIndex = currentChannels.findIndex(ch => ch.id === channelId);
+        
+        if (channelIndex >= 0) {
+            currentChannels[channelIndex].whatsappGroupIds = groupIds;
+            await this.setTelegramChannels(currentChannels);
+        } else {
+            // Channel doesn't exist, create it
+            await this.addTelegramChannel({ id: channelId, whatsappGroupIds: groupIds });
+        }
+    }
+
+    /**
+     * Get WhatsApp groups for a specific Telegram channel
+     */
+    public getTelegramChannelWhatsAppGroups(channelId: string): string[] {
+        const channel = this.config.telegramChannels.find(ch => ch.id === channelId);
+        return channel?.whatsappGroupIds || [];
+    }
+
+    /**
+     * Add WhatsApp group to a specific Telegram channel
+     */
+    public async addWhatsAppGroupToTelegramChannel(channelId: string, groupId: string): Promise<void> {
+        const currentGroups = this.getTelegramChannelWhatsAppGroups(channelId);
+        if (!currentGroups.includes(groupId)) {
+            currentGroups.push(groupId);
+            await this.setTelegramChannelWhatsAppGroups(channelId, currentGroups);
+        }
+    }
+
+    /**
+     * Remove WhatsApp group from a specific Telegram channel
+     */
+    public async removeWhatsAppGroupFromTelegramChannel(channelId: string, groupId: string): Promise<void> {
+        const currentGroups = this.getTelegramChannelWhatsAppGroups(channelId);
+        const filteredGroups = currentGroups.filter(id => id !== groupId);
+        await this.setTelegramChannelWhatsAppGroups(channelId, filteredGroups);
+    }
+
+    /**
+     * Sync channel IDs with structured channels (for backward compatibility)
+     */
+    public async syncTelegramChannelIds(channelIds: string[]): Promise<void> {
+        const currentChannels = this.getTelegramChannels();
+        const newChannels: TelegramChannel[] = channelIds.map(id => {
+            const existing = currentChannels.find(ch => ch.id === id);
+            return existing || { id };
+        });
+        await this.setTelegramChannels(newChannels);
+    }
 }
 
 // Create and export singleton instance
@@ -328,3 +479,4 @@ configManager.initialize().catch(error => {
 
 export { configManager };
 export default ConfigManager;
+

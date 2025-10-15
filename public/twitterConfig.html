@@ -111,6 +111,7 @@
         let whatsappReady = false;
         let forwardingActive = false;
         let currentAccounts = [];
+        let availableGroups = []; // Add this to store available WhatsApp groups
 
         // DOM elements
         const twitterStatusDot = document.getElementById('twitterStatusDot');
@@ -137,6 +138,7 @@
             loadStatus();
             loadListeningAccounts();
             loadConfiguration();
+            loadAvailableGroups(); // Load WhatsApp groups
             
             // Set up event listeners
             initTwitterBtn.addEventListener('click', initializeTwitter);
@@ -450,6 +452,21 @@
             }
         }
 
+        // Load available WhatsApp groups
+        async function loadAvailableGroups() {
+            try {
+                const response = await fetch('/whatsapp/groups');
+                const data = await response.json();
+                
+                if (data.success) {
+                    availableGroups = data.groups || [];
+                    console.log('Loaded WhatsApp groups:', availableGroups.length);
+                }
+            } catch (error) {
+                console.error('Error loading WhatsApp groups:', error);
+            }
+        }
+
         // Display listening accounts
         function displayListeningAccounts(accounts) {
             if (accounts.length === 0) {
@@ -457,19 +474,176 @@
                 return;
             }
 
-            const accountsHtml = accounts.map(account => `
-                <div class="account-item">
-                    <div class="account-info">
-                        <div class="account-name">${account.name || 'Unknown'}</div>
-                        <div class="account-username">@${account.username}</div>
+            const accountsHtml = accounts.map(account => {
+                const groupCount = account.whatsappGroupIds?.length || 0;
+                const groupText = groupCount > 0 
+                    ? `${groupCount} group${groupCount !== 1 ? 's' : ''}` 
+                    : 'No groups (using default)';
+                
+                return `
+                <div class="account-item" style="flex-direction: column; align-items: stretch;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div class="account-info">
+                            <div class="account-name">${account.name || 'Unknown'}</div>
+                            <div class="account-username">@${account.username}</div>
+                            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                📱 ${groupText}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" onclick="openGroupsModal('${account.id}', '${account.username}')">
+                                Configure Groups
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="removeAccount('${account.id}')">
+                                Remove
+                            </button>
+                        </div>
                     </div>
-                    <button class="btn btn-danger btn-sm" onclick="removeAccount('${account.id}')">
-                        Remove
-                    </button>
+                    <div id="groups-${account.id}" class="groups-tags" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+                        ${(account.whatsappGroupIds || []).map(groupId => {
+                            const group = availableGroups.find(g => g.id === groupId);
+                            const groupName = group?.name || groupId.substring(0, 15) + '...';
+                            return `<span class="group-tag" title="${groupId}">${groupName}</span>`;
+                        }).join('')}
+                    </div>
                 </div>
-            `).join('');
+            `}).join('');
 
             listeningAccounts.innerHTML = accountsHtml;
+        }
+
+        // Open groups configuration modal
+        function openGroupsModal(accountId, username) {
+            const account = currentAccounts.find(a => a.id === accountId);
+            const currentGroupIds = account?.whatsappGroupIds || [];
+            
+            const modalHtml = `
+                <div id="groupsModal" class="modal" style="display: flex;">
+                    <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+                        <div class="modal-header">
+                            <h2>Configure WhatsApp Groups for @${username}</h2>
+                            <button class="close-btn" onclick="closeGroupsModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <p style="margin-bottom: 15px; color: #666;">
+                                Select which WhatsApp groups should receive tweets from this account. 
+                                If no groups are selected, tweets will be sent to the default group.
+                            </p>
+                            <div id="groupsList" class="groups-list">
+                                ${availableGroups.length === 0 
+                                    ? '<div class="no-groups">No WhatsApp groups available. Please connect WhatsApp first.</div>'
+                                    : availableGroups.map(group => {
+                                        const isChecked = currentGroupIds.includes(group.id);
+                                        return `
+                                            <label class="group-checkbox-item">
+                                                <input type="checkbox" 
+                                                       value="${group.id}" 
+                                                       ${isChecked ? 'checked' : ''}
+                                                       onchange="toggleGroupSelection('${accountId}', '${group.id}', this.checked)">
+                                                <span class="group-name">${group.name}</span>
+                                                <span class="group-id">${group.id}</span>
+                                            </label>
+                                        `;
+                                    }).join('')
+                                }
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeGroupsModal()">Close</button>
+                            <button class="btn btn-primary" onclick="saveGroupConfiguration('${accountId}')">Save</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        // Close groups modal
+        function closeGroupsModal() {
+            const modal = document.getElementById('groupsModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // Toggle group selection (real-time update)
+        async function toggleGroupSelection(accountId, groupId, isChecked) {
+            try {
+                const endpoint = isChecked 
+                    ? `/twitter/accounts/${accountId}/whatsapp-groups/add`
+                    : `/twitter/accounts/${accountId}/whatsapp-groups/remove`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ groupId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update local data
+                    const account = currentAccounts.find(a => a.id === accountId);
+                    if (account) {
+                        if (!account.whatsappGroupIds) {
+                            account.whatsappGroupIds = [];
+                        }
+                        if (isChecked) {
+                            if (!account.whatsappGroupIds.includes(groupId)) {
+                                account.whatsappGroupIds.push(groupId);
+                            }
+                        } else {
+                            account.whatsappGroupIds = account.whatsappGroupIds.filter(id => id !== groupId);
+                        }
+                    }
+                    
+                    // Refresh the display
+                    loadListeningAccounts();
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                    // Revert checkbox
+                    const checkbox = event.target;
+                    checkbox.checked = !isChecked;
+                }
+            } catch (error) {
+                console.error('Error updating group selection:', error);
+                showAlert('Error updating group selection', 'error');
+                // Revert checkbox
+                const checkbox = event.target;
+                checkbox.checked = !isChecked;
+            }
+        }
+
+        // Save group configuration
+        async function saveGroupConfiguration(accountId) {
+            try {
+                const checkboxes = document.querySelectorAll('#groupsList input[type="checkbox"]:checked');
+                const groupIds = Array.from(checkboxes).map(cb => cb.value);
+                
+                const response = await fetch(`/twitter/accounts/${accountId}/whatsapp-groups`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ groupIds })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert('Group configuration saved successfully', 'success');
+                    closeGroupsModal();
+                    loadListeningAccounts();
+                } else {
+                    showAlert(`Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving group configuration:', error);
+                showAlert('Error saving group configuration', 'error');
+            }
         }
 
         // Remove account

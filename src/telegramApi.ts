@@ -218,6 +218,117 @@ router.post('/update-config', async (req, res) => {
 });
 
 /**
+ * Set WhatsApp groups for a specific Telegram channel
+ */
+router.post('/channels/:channelId/whatsapp-groups', async (req, res) => {
+    try {
+        const { channelId } = req.params;
+        const { groupIds } = req.body;
+        
+        if (!Array.isArray(groupIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'groupIds must be an array'
+            });
+        }
+
+        await configManager.setTelegramChannelWhatsAppGroups(channelId, groupIds);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp groups updated for Telegram channel ${channelId}`
+        });
+    } catch (error) {
+        console.error('Error setting WhatsApp groups for Telegram channel:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Get WhatsApp groups for a specific Telegram channel
+ */
+router.get('/channels/:channelId/whatsapp-groups', (req, res) => {
+    try {
+        const { channelId } = req.params;
+        const groupIds = configManager.getTelegramChannelWhatsAppGroups(channelId);
+        
+        res.json({
+            success: true,
+            groupIds: groupIds
+        });
+    } catch (error) {
+        console.error('Error getting WhatsApp groups for Telegram channel:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Add a WhatsApp group to a specific Telegram channel
+ */
+router.post('/channels/:channelId/whatsapp-groups/add', async (req, res) => {
+    try {
+        const { channelId } = req.params;
+        const { groupId } = req.body;
+        
+        if (!groupId || typeof groupId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'groupId is required'
+            });
+        }
+
+        await configManager.addWhatsAppGroupToTelegramChannel(channelId, groupId);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp group ${groupId} added to Telegram channel ${channelId}`
+        });
+    } catch (error) {
+        console.error('Error adding WhatsApp group to Telegram channel:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Remove a WhatsApp group from a specific Telegram channel
+ */
+router.post('/channels/:channelId/whatsapp-groups/remove', async (req, res) => {
+    try {
+        const { channelId } = req.params;
+        const { groupId } = req.body;
+        
+        if (!groupId || typeof groupId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'groupId is required'
+            });
+        }
+
+        await configManager.removeWhatsAppGroupFromTelegramChannel(channelId, groupId);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp group ${groupId} removed from Telegram channel ${channelId}`
+        });
+    } catch (error) {
+        console.error('Error removing WhatsApp group from Telegram channel:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
  * Get channels that Telegram is currently listening to
  */
 router.get('/listening-channels', (req, res) => {

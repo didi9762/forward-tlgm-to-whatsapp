@@ -153,12 +153,14 @@
         let channels = [];
         let listeningChannels = [];
         let currentConfig = {};
+        let availableGroups = []; // Add this
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', function () {
             checkConnectionStatus();
             loadConfiguration();
             loadListeningChannels();
+            loadAvailableGroups(); // Add this
             
             // Auto-load channels if Telegram is ready
             setTimeout(async () => {
@@ -481,38 +483,59 @@
                 return;
             }
 
+            const telegramChannels = currentConfig.telegramChannels || [];
             const listeningChannelDetails = listeningChannels.map(channelId => {
-                console.log('channelId', Math.abs(channelId));
-                
                 const channel = channels.find(c => c.id == Math.abs(channelId));
+                const channelConfig = telegramChannels.find(tc => tc.id === channelId);
+                const groupCount = channelConfig?.whatsappGroupIds?.length || 0;
+                const groupText = groupCount > 0 
+                    ? `${groupCount} group${groupCount !== 1 ? 's' : ''}` 
+                    : 'No groups (using default)';
+                
                 if (channel) {
-                    return channel;
+                    return { ...channel, whatsappGroupIds: channelConfig?.whatsappGroupIds || [] };
                 } else {
-                    // For unknown channels, create a placeholder with the ID
                     return { 
                         id: channelId, 
                         title: `Unknown Channel (ID: ${channelId.substring(0, 10)}...)`, 
                         isChannel: true,
-                        isUnknown: true // Flag to identify unknown channels
+                        isUnknown: true,
+                        whatsappGroupIds: channelConfig?.whatsappGroupIds || []
                     };
                 }
             });
 
             listeningContainer.innerHTML = listeningChannelDetails.map(channel => `
                 <div class="listening-channel-item ${channel.isUnknown ? 'unknown-channel' : ''}">
-                    <div class="channel-info">
-                        <div class="channel-title">
-                            ${getChannelIcon(channel)} ${channel.title}
-                            ${channel.isUnknown ? '<span class="unknown-badge">Unknown</span>' : ''}
+                    <div style="flex: 1;">
+                        <div class="channel-info">
+                            <div class="channel-title">
+                                ${getChannelIcon(channel)} ${channel.title}
+                                ${channel.isUnknown ? '<span class="unknown-badge">Unknown</span>' : ''}
+                            </div>
+                            <div class="channel-id">ID: ${channel.id}</div>
+                            <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                📱 ${channel.whatsappGroupIds.length > 0 ? `${channel.whatsappGroupIds.length} group${channel.whatsappGroupIds.length !== 1 ? 's' : ''}` : 'No groups (using default)'}
+                            </div>
                         </div>
-                        <div class="channel-id">ID: ${channel.id}</div>
+                        <div class="groups-tags" style="margin-top: 8px;">
+                            ${(channel.whatsappGroupIds || []).map(groupId => {
+                                const group = availableGroups.find(g => g.id === groupId);
+                                const groupName = group?.name || groupId.substring(0, 15) + '...';
+                                return `<span class="group-tag" title="${groupId}">${groupName}</span>`;
+                            }).join('')}
+                        </div>
                     </div>
-                    <button class="btn btn-sm btn-danger" onclick="toggleChannelListening('${channel.id}')">
-                        🔇 Remove
-                    </button>
+                    <div style="display: flex; gap: 8px; align-items: flex-start;">
+                        <button class="btn btn-sm btn-secondary" onclick="openGroupsModal('${channel.id}', '${channel.title.replace(/'/g, "\\'")}')">
+                            Configure Groups
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="toggleChannelListening('${channel.id}')">
+                            🔇 Remove
+                        </button>
+                    </div>
                 </div>
             `).join('');
-
         }
 
         // Save listening channels (this is automatically done by the API)
@@ -887,6 +910,109 @@
             } finally {
                 resetBtn.disabled = false;
                 resetBtnText.innerHTML = '⚠️ Reset Session';
+            }
+        }
+
+        // Load available WhatsApp groups
+        async function loadAvailableGroups() {
+            try {
+                const response = await fetch('/whatsapp/groups');
+                const data = await response.json();
+                
+                if (data.success) {
+                    availableGroups = data.groups || [];
+                    console.log('Loaded WhatsApp groups:', availableGroups.length);
+                }
+            } catch (error) {
+                console.error('Error loading WhatsApp groups:', error);
+            }
+        }
+
+        // Add group modal functions
+        function openGroupsModal(channelId, channelTitle) {
+            const telegramChannels = currentConfig.telegramChannels || [];
+            const channelConfig = telegramChannels.find(tc => tc.id === channelId);
+            const currentGroupIds = channelConfig?.whatsappGroupIds || [];
+            
+            const modalHtml = `
+                <div id="groupsModal" class="modal" style="display: flex;">
+                    <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto;">
+                        <div class="modal-header">
+                            <h2>Configure WhatsApp Groups for ${channelTitle}</h2>
+                            <button class="close-btn" onclick="closeGroupsModal()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <p style="margin-bottom: 15px; color: #666;">
+                                Select which WhatsApp groups should receive messages from this channel. 
+                                If no groups are selected, messages will be sent to the default group.
+                            </p>
+                            <div id="groupsList" class="groups-list">
+                                ${availableGroups.length === 0 
+                                    ? '<div class="no-groups">No WhatsApp groups available. Please connect WhatsApp first.</div>'
+                                    : availableGroups.map(group => {
+                                        const isChecked = currentGroupIds.includes(group.id);
+                                        return `
+                                            <label class="group-checkbox-item">
+                                                <input type="checkbox" 
+                                                       value="${group.id}" 
+                                                       ${isChecked ? 'checked' : ''}
+                                                       onchange="toggleGroupSelection('${channelId}', '${group.id}', this.checked)">
+                                                <span class="group-name">${group.name}</span>
+                                                <span class="group-id">${group.id}</span>
+                                            </label>
+                                        `;
+                                    }).join('')
+                                }
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeGroupsModal()">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        function closeGroupsModal() {
+            const modal = document.getElementById('groupsModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        async function toggleGroupSelection(channelId, groupId, isChecked) {
+            try {
+                const endpoint = isChecked 
+                    ? `/telegram/channels/${channelId}/whatsapp-groups/add`
+                    : `/telegram/channels/${channelId}/whatsapp-groups/remove`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ groupId })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Reload configuration and refresh display
+                    await loadConfiguration();
+                    await loadListeningChannels();
+                    renderListeningChannels();
+                } else {
+                    showAlert('error', `❌ Error: ${data.error}`);
+                    // Revert checkbox
+                    event.target.checked = !isChecked;
+                }
+            } catch (error) {
+                console.error('Error updating group selection:', error);
+                showAlert('error', '❌ Error updating group selection');
+                // Revert checkbox
+                event.target.checked = !isChecked;
             }
         }
 

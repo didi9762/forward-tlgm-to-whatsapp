@@ -42,7 +42,7 @@ async function startForwarding() {
         telegramChannelIds: [], // Not used for Twitter
         isActive: config.isActive,
         createdAt: config.createdAt,
-        lastModified: config.lastModified
+        lastModified: config.lastModified,
     };
 
     return await forwardingManager.startTwitterForwardingConfig(listeningConfig, config.twitterAccounts.map(acc => acc.id));
@@ -364,6 +364,117 @@ router.get('/keep-alive-status', (req, res) => {
         });
     } catch (error) {
         console.error('Error getting keep-alive status:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Set WhatsApp groups for a specific Twitter account
+ */
+router.post('/accounts/:accountId/whatsapp-groups', async (req, res) => {
+    try {
+        const { accountId } = req.params;
+        const { groupIds } = req.body;
+        
+        if (!Array.isArray(groupIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'groupIds must be an array'
+            });
+        }
+
+        await configManager.setTwitterAccountWhatsAppGroups(accountId, groupIds);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp groups updated for Twitter account ${accountId}`
+        });
+    } catch (error) {
+        console.error('Error setting WhatsApp groups for Twitter account:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Get WhatsApp groups for a specific Twitter account
+ */
+router.get('/accounts/:accountId/whatsapp-groups', (req, res) => {
+    try {
+        const { accountId } = req.params;
+        const groupIds = configManager.getTwitterAccountWhatsAppGroups(accountId);
+        
+        res.json({
+            success: true,
+            groupIds: groupIds
+        });
+    } catch (error) {
+        console.error('Error getting WhatsApp groups for Twitter account:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Add a WhatsApp group to a specific Twitter account
+ */
+router.post('/accounts/:accountId/whatsapp-groups/add', async (req, res) => {
+    try {
+        const { accountId } = req.params;
+        const { groupId } = req.body;
+        
+        if (!groupId || typeof groupId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'groupId is required'
+            });
+        }
+
+        await configManager.addWhatsAppGroupToTwitterAccount(accountId, groupId);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp group ${groupId} added to Twitter account ${accountId}`
+        });
+    } catch (error) {
+        console.error('Error adding WhatsApp group to Twitter account:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+/**
+ * Remove a WhatsApp group from a specific Twitter account
+ */
+router.post('/accounts/:accountId/whatsapp-groups/remove', async (req, res) => {
+    try {
+        const { accountId } = req.params;
+        const { groupId } = req.body;
+        
+        if (!groupId || typeof groupId !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'groupId is required'
+            });
+        }
+
+        await configManager.removeWhatsAppGroupFromTwitterAccount(accountId, groupId);
+        
+        res.json({
+            success: true,
+            message: `WhatsApp group ${groupId} removed from Twitter account ${accountId}`
+        });
+    } catch (error) {
+        console.error('Error removing WhatsApp group from Twitter account:', error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error'

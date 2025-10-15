@@ -358,6 +358,7 @@ export class TwitterInstance {
     }
 
     private async fetchRecentTweetsFromUsers(sinceMinutes = 16): Promise<void> {
+        console.log('Fetching recent tweets from users');
         if (!this.client) return;
 
         const accounts = this.getListeningAccounts();
@@ -402,7 +403,11 @@ export class TwitterInstance {
 
 
             for await (const tweet of res) {
-                await this.handleTweet(tweet, res.includes);
+                // Filter includes to only contain data relevant to this specific tweet
+                const filteredIncludes = this.filterIncludesForTweet(tweet, res.includes);
+                
+                // Log tweet object to separate file with filtered includes
+                await this.handleTweet(tweet, filteredIncludes);
             }
 
             const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
@@ -610,6 +615,30 @@ export class TwitterInstance {
             const mentions = tweet.entities?.mentions?.map((m: any) => m.username) || [];
             const urls = tweet.entities?.urls?.map((u: any) => u.expanded_url || u.url) || [];
 
+            // Filter URLs from tweet text (remove URLs that point to the tweet itself)
+            const cleanText = (text: string): string => {
+                if (!text) return text;
+                
+                // Find URLs in the text that point to this tweet
+                const tweetUrlPattern = new RegExp(`https://t\\.co/[\\w]+`, 'g');
+                const urlsInText = text.match(tweetUrlPattern) || [];
+                
+                let filteredText = text;
+                for (const url of urlsInText) {
+                    // Check if this t.co URL expands to the tweet itself
+                    const urlEntity = tweet.entities?.urls?.find((u: any) => u.url === url);
+                    if (urlEntity) {
+                        const expandedUrl = urlEntity.expanded_url || urlEntity.url;
+                        if (expandedUrl && expandedUrl.includes(`/status/${tweet.id}`)) {
+                            // Remove this URL from the text
+                            filteredText = filteredText.replace(url, '').trim();
+                        }
+                    }
+                }
+                
+                return filteredText;
+            };
+
             // Create base message data
             const baseMessageData = {
                 id: tweet.id,
@@ -630,7 +659,7 @@ export class TwitterInstance {
                 // Send first message with original tweet text and first media
                 const firstMessage: TwitterMessage = {
                     ...baseMessageData,
-                    text: tweet.note_tweet?.text || tweet.text,
+                    text: cleanText(tweet.note_tweet?.text || tweet.text), // Apply URL filtering here
                     mediaType: this.getMediaType(media[0]),
                     hasMedia: true,
                     mediaUrls: [mediaUrls[0]],
@@ -692,7 +721,7 @@ export class TwitterInstance {
                 // No media or media download failed - send single message
                 const twitterMessage: TwitterMessage = {
                     ...baseMessageData,
-                    text: tweet.note_tweet?.text || tweet.text,
+                    text: cleanText(tweet.note_tweet?.text || tweet.text), // Apply URL filtering here
                     mediaType: hasMedia ? this.getMediaType(media[0]) : undefined,
                     hasMedia: hasMedia,
                     mediaUrls: mediaUrls,
@@ -993,6 +1022,39 @@ export class TwitterInstance {
      */
     private async clearLastSinceId(): Promise<void> {
         await configManager.setLastSinceId('');
+    }
+
+    /**
+     * Filter includes data to only include data relevant to a specific tweet.
+     * This is necessary because the Twitter API returns all data for a batch of tweets
+     * in the `includes` object, which can be large and contain duplicates.
+     * We need to extract only the data for the tweet we are currently processing.
+     */
+    private filterIncludesForTweet(tweet: TweetV2, includes: any): any {
+        const filteredIncludes: any = {};
+
+        // Filter users
+        filteredIncludes.users = includes.users?.filter((user: any) => user.id === tweet.author_id);
+
+        // Filter media
+        filteredIncludes.media = includes.media?.filter((media: any) => {
+            // Check if the media is attached to the tweet
+            const isAttached = media.media_key && tweet.attachments?.media_keys?.includes(media.media_key);
+            // Also check if it's a referenced tweet that contains media
+            const isReferenced = media.media_key && tweet.referenced_tweets?.some((ref: any) => ref.type === 'replied_to' && ref.id === media.media_key);
+            return isAttached || isReferenced;
+        });
+
+        // Filter referenced tweets
+        filteredIncludes.referenced_tweets = includes.referenced_tweets?.filter((ref: any) => {
+            // Check if the referenced tweet is attached to the tweet
+            const isAttached = ref.id && tweet.referenced_tweets?.some((tweetRef: any) => tweetRef.id === ref.id);
+            // Also check if it's a replied_to tweet that contains a referenced tweet
+            const isRepliedTo = ref.type === 'replied_to' && ref.id && tweet.referenced_tweets?.some((tweetRef: any) => tweetRef.type === 'replied_to' && tweetRef.id === ref.id);
+            return isAttached || isRepliedTo;
+        });
+
+        return filteredIncludes;
     }
 }
 
