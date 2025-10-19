@@ -173,11 +173,15 @@ router.post('/stop-forwarding', async (req, res) => {
 router.get('/forwarding-status', async (req, res) => {
     try {
         const config = await configManager.getConfig();
-        const isActive = forwardingManager.isConfigActive('main_config');
+        
+        // Check if ANY Telegram forwarding session is active (not just 'main_config')
+        const sessionsInfo = await forwardingManager.getActiveSessionsInfo();
+        const isActive = sessionsInfo.length > 0;
         
         res.json({ 
             success: true,
             isActive,
+            activeSessions: sessionsInfo.length,
             config: config,
             telegramReady: telegramInstance.isReady(),
             whatsappReady: whatsappInstance.isReady()
@@ -429,11 +433,15 @@ router.post('/listen', async (req, res) => {
         const newChannels = [...new Set([...currentChannels, ...channelIds])];
         
         await configManager.setTelegramChannelIds(newChannels);
+        
+        // Auto-activate config when starting to listen
+        await configManager.setActive(true);
+        
         await telegramInstance.startListening(channelIds);
 
         res.json({
             success: true,
-            message: `Started listening to ${channelIds.length} channels`
+            message: `Started listening to ${channelIds.length} channels (config activated)`
         });
     } catch (error) {
         console.error('Error starting to listen:', error);

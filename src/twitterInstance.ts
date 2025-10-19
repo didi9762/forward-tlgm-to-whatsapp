@@ -47,6 +47,7 @@ export class TwitterInstance {
     private reconnectInterval: NodeJS.Timeout | null = null;
     private keepAliveInterval: NodeJS.Timeout | null = null;
     private isKeepAliveActive: boolean = false;
+    private isFirstPoll: boolean = true; // Track if this is the first poll
 
     constructor() {
         this.loadListeningAccountsFromConfig();
@@ -298,7 +299,22 @@ export class TwitterInstance {
         
         console.log(`Starting Twitter polling with 16-minute intervals...`);
         
-        // Poll every 15 minutes for new tweets
+        // Do first poll immediately with 1 minute lookback
+        (async () => {
+            try {
+                if (this.isFirstPoll) {
+                    console.log('First poll - fetching tweets from last 1 minute only');
+                    await this.fetchRecentTweetsFromUsers(1, true); // Only 1 minute for first poll
+                    this.isFirstPoll = false;
+                } else {
+                    await this.fetchRecentTweetsFromUsers();
+                }
+            } catch (error) {
+                console.error('Error on initial tweet fetch:', error);
+            }
+        })();
+        
+        // Poll every 16 minutes for new tweets
         this.pollingInterval = setInterval(async () => {
             try {
                 await this.fetchRecentTweetsFromUsers();
@@ -357,7 +373,7 @@ export class TwitterInstance {
         }
     }
 
-    private async fetchRecentTweetsFromUsers(sinceMinutes = 16): Promise<void> {
+    private async fetchRecentTweetsFromUsers(sinceMinutes = 1, force = false): Promise<void> {
         console.log('Fetching recent tweets from users');
         if (!this.client) return;
 
@@ -388,7 +404,7 @@ export class TwitterInstance {
         try {
             const sinceId = this.getLastSinceId();
 
-            if (sinceId && this.isSinceIdValid(sinceId)) {
+            if (sinceId && this.isSinceIdValid(sinceId) && !force) {
                 params.since_id = sinceId;
             } else {
                 if (sinceId) {
@@ -769,6 +785,7 @@ export class TwitterInstance {
             this.pollingInterval = null;
         }
         this.isStreaming = false;
+        this.isFirstPoll = true; // Reset for next start
         console.log('Twitter monitoring stopped');
     }
 

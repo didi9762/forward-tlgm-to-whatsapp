@@ -7,6 +7,7 @@ import * as path from 'path';
 interface QueueItem {
     id: string;
     groupId: string;
+    mediaPath: string;
     content: string;
     options?: {
         type?: 'text' | 'media';
@@ -426,7 +427,7 @@ export class WhatsAppInstance {
      * @param message Text message to send
      */
     public async sendTextToGroup(groupId: string, message: string): Promise<void> {
-        return this.addToQueue(groupId, message, { type: 'text' });
+        return this.addToQueue(groupId, '', message, { type: 'text' });
     }
 
     /**
@@ -472,7 +473,7 @@ export class WhatsAppInstance {
         caption?: string,
         mediaType: 'image' | 'video' | 'audio' | 'document' = 'image'
     ): Promise<void> {
-        return this.addToQueue(groupId, mediaPath, { 
+        return this.addToQueue(groupId, mediaPath, caption || '', { 
             type: 'media', 
             caption, 
             mediaType 
@@ -535,6 +536,7 @@ export class WhatsAppInstance {
      */
     public async sendMessageToGroup(
         groupId: string, 
+        mediaPath: string,
         content: string, 
         options?: {
             type?: 'text' | 'media';
@@ -542,7 +544,7 @@ export class WhatsAppInstance {
             mediaType?: 'image' | 'video' | 'audio' | 'document';
         }
     ): Promise<void> {
-        return this.addToQueue(groupId, content, options);
+        return this.addToQueue(groupId, mediaPath, content, options);
     }
 
     /**
@@ -744,8 +746,11 @@ export class WhatsAppInstance {
             console.log(`[Queue] Processing message ${queueItem.id} for group ${queueItem.groupId}`);
 
             try {
-                await this.sendMessageDirectly(queueItem.groupId, queueItem.content, queueItem.options);
+                await this.sendMessageDirectly(queueItem.groupId, queueItem.mediaPath, queueItem.content, queueItem.options);
                 queueItem.resolve();
+                if (queueItem.mediaPath) {
+                    fs.unlinkSync(queueItem.mediaPath);
+                }
                 console.log(`[Queue] Message ${queueItem.id} sent successfully`);
             } catch (error) {
                 console.error(`[Queue] Failed to send message ${queueItem.id}:`, error);
@@ -767,6 +772,7 @@ export class WhatsAppInstance {
      */
     private addToQueue(
         groupId: string, 
+        mediaPath: string,
         content: string, 
         options?: {
             type?: 'text' | 'media';
@@ -785,6 +791,7 @@ export class WhatsAppInstance {
             const queueItem: QueueItem = {
                 id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 groupId,
+                mediaPath,
                 content,
                 options,
                 timestamp: Date.now(),
@@ -802,6 +809,7 @@ export class WhatsAppInstance {
      */
     private async sendMessageDirectly(
         groupId: string, 
+        mediaPath: string,
         content: string, 
         options?: {
             type?: 'text' | 'media';
@@ -812,7 +820,7 @@ export class WhatsAppInstance {
         const { type = 'text', caption, mediaType = 'image' } = options || {};
         
         if (type === 'media') {
-            await this.sendMediaToGroupDirectly(groupId, content, caption, mediaType);
+            await this.sendMediaToGroupDirectly(groupId, mediaPath, caption, mediaType);
         } else {
             await this.sendTextToGroupDirectly(groupId, content);
         }

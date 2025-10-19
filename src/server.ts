@@ -7,6 +7,7 @@ import telegramApi from './telegramApi';
 import twitterApi from './twitterApi';
 import aiApi from './aiApi';
 import { configManager } from './configManager';
+import { forwardingManager, telegramInstance, whatsappInstance, twitterInstance } from './sharedInstances';
 
 const app = express();
 const PORT = process.env.PORT || 1234;
@@ -39,9 +40,53 @@ app.get('/', (req, res) => {
 // Initialize forwarding on server start
 async function initializeForwarding() {
     try {
-        if (configManager.isActive()) {
-            console.log('Auto-start forwarding is enabled, will start forwarding when clients are ready...');
+        if (!configManager.isActive()) {
+            console.log('Configuration is not active, skipping auto-start forwarding');
+            return;
         }
+
+        console.log('Configuration is active, waiting for clients to be ready...');
+        
+        // Wait for clients to be ready before starting forwarding
+        const checkClientsAndStart = async () => {
+            const telegramReady = telegramInstance.isReady();
+            const whatsappReady = whatsappInstance.isReady();
+            const twitterReady = twitterInstance.isReady();
+            
+            console.log(`Client status - Telegram: ${telegramReady}, WhatsApp: ${whatsappReady}, Twitter: ${twitterReady}`);
+            
+            if (telegramReady && whatsappReady) {
+                console.log('Clients are ready, starting all active forwarding configs...');
+                await forwardingManager.startAllActiveConfigs();
+                console.log('Forwarding sessions started successfully');
+                return true;
+            }
+            return false;
+        };
+        
+        // Try immediately
+        const started = await checkClientsAndStart();
+        
+        // If not ready, poll every 5 seconds for up to 2 minutes
+        if (!started) {
+            console.log('Clients not ready yet, will retry...');
+            let attempts = 0;
+            const maxAttempts = 24; // 2 minutes (24 * 5 seconds)
+            
+            const interval = setInterval(async () => {
+                attempts++;
+                console.log(`Retry attempt ${attempts}/${maxAttempts} to start forwarding...`);
+                
+                const started = await checkClientsAndStart();
+                if (started) {
+                    clearInterval(interval);
+                } else if (attempts >= maxAttempts) {
+                    console.log('Max attempts reached, giving up on auto-start. You can manually start forwarding via the API.');
+                    clearInterval(interval);
+                }
+            }, 5000);
+        }
+        
     } catch (error) {
         console.error('Error during forwarding initialization:', error);
     }
@@ -94,10 +139,6 @@ process.on('unhandledRejection', (reason, promise) => {
 console.log(PORT)
 const server = app.listen(Number(PORT), process.env.HOST || '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`API endpoints available at http://localhost:${PORT}/api/whatsapp`);
-    console.log(`Listening config API available at http://localhost:${PORT}/telegram/listening-config/`);
-    console.log(`Twitter API available at http://localhost:${PORT}/twitter/`);
-    console.log(`AI API available at http://localhost:${PORT}/ai/`);
     
     // Initialize forwarding after server starts
     initializeForwarding();

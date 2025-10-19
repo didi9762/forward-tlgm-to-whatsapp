@@ -286,18 +286,49 @@ class ForwardingManager {
      * Start all active forwarding configs
      */
     public async startAllActiveConfigs(): Promise<void> {
-        const activeConfigs = await getActiveListeningConfigs();
-        
-        console.log(`Starting ${activeConfigs.length} active forwarding configs...`);
+        try {
+            // Get active Telegram configs from database
+            const activeConfigs = await getActiveListeningConfigs();
+            
+            console.log(`Starting ${activeConfigs.length} active Telegram forwarding configs...`);
 
-        for (const config of activeConfigs) {
-            await this.startForwardingConfig(config);
-        }
+            // Start Telegram forwarding configs
+            for (const config of activeConfigs) {
+                await this.startForwardingConfig(config);
+            }
 
-        // Update Telegram listening channels based on all active configs
-        const allChannelIds = this.getAllActiveTelegramSources(activeConfigs);
-        if (allChannelIds.length > 0) {
-            console.log(`Updated Telegram listening to ${allChannelIds.length} sources`);
+            // Update Telegram listening channels based on all active configs
+            const allChannelIds = this.getAllActiveTelegramSources(activeConfigs);
+            if (allChannelIds.length > 0) {
+                console.log(`Updated Telegram listening to ${allChannelIds.length} sources`);
+            }
+
+            // Start Twitter forwarding sessions based on configManager
+            if (configManager.isActive()) {
+                const twitterAccounts = configManager.getTwitterAccounts();
+                
+                if (twitterAccounts.length > 0) {
+                    console.log(`Starting Twitter forwarding for ${twitterAccounts.length} accounts...`);
+                    
+                    // Create a config for Twitter (reuse main_config or create a twitter-specific one)
+                    const twitterConfig: ListeningConfig = {
+                        id: 'twitter_main_config',
+                        whatsappGroupId: configManager.getWhatsAppGroupId(),
+                        telegramChannelIds: [], // Not used for Twitter
+                        isActive: true,
+                        createdAt: new Date(),
+                        lastModified: new Date()
+                    };
+                    
+                    // Start Twitter forwarding with all account IDs
+                    const accountIds = twitterAccounts.map(acc => acc.id);
+                    await this.startTwitterForwardingConfig(twitterConfig, accountIds);
+                    
+                    console.log(`Twitter forwarding session added to activeTwitterSessions map`);
+                }
+            }
+        } catch (error) {
+            console.error('Error starting all active configs:', error);
         }
     }
 
@@ -543,6 +574,8 @@ class ForwardingManager {
                     } else if (message.mediaType === 'gif') {
                         whatsappMediaType = 'image'; // GIFs are treated as images in WhatsApp
                     }
+                    console.log('[ForwardingManager] Sending media to WhatsApp group:', tempFilePath);
+                    
                     
                     // Send media to WhatsApp
                     await this.whatsappInstance.sendMediaToGroup(
@@ -551,14 +584,11 @@ class ForwardingManager {
                         formattedMessage, // Use formatted message as caption
                         whatsappMediaType
                     );
-                    
-                    // Clean up temporary file
-                    fs.unlinkSync(tempFilePath);
-                    
+
                 } catch (mediaError) {
                     console.error('Error handling Twitter media file:', mediaError);
                     // Fall back to text-only message
-                    await this.whatsappInstance.sendMessageToGroup(groupId, formattedMessage);
+                    await this.whatsappInstance.sendMessageToGroup(groupId, '', formattedMessage);
                 }
             } else if (message.hasMedia && message.mediaSkippedReason) {
                 // Media was skipped, add note to message
@@ -575,7 +605,7 @@ class ForwardingManager {
                 }
                 
                 // Send text message to WhatsApp group
-                await this.whatsappInstance.sendMessageToGroup(groupId, messageWithNote);
+                await this.whatsappInstance.sendMessageToGroup(groupId, '', messageWithNote);
             } else {
                 // No media or media URLs only
                 let finalMessage = formattedMessage;
@@ -585,7 +615,7 @@ class ForwardingManager {
                 }
                 
                 // Send text message to WhatsApp group
-                await this.whatsappInstance.sendMessageToGroup(groupId, finalMessage);
+                await this.whatsappInstance.sendMessageToGroup(groupId, '', finalMessage);
             }
         } catch (error) {
             console.error(`Error sending Twitter message to WhatsApp group ${groupId}:`, error);
@@ -628,6 +658,8 @@ class ForwardingManager {
                         whatsappMediaType = 'audio';
                     }
                     
+                    console.log('[ForwardingManager] Sending media to WhatsApp group:', tempFilePath);
+
                     // Send media to WhatsApp
                     await this.whatsappInstance.sendMediaToGroup(
                         groupId, 
@@ -637,12 +669,12 @@ class ForwardingManager {
                     );
                     
                     // Clean up temporary file
-                    fs.unlinkSync(tempFilePath);
+                    // fs.unlinkSync(tempFilePath);
                     
                 } catch (mediaError) {
                     console.error('Error handling media file:', mediaError);
                     // Fallback to text message mentioning media
-                    await this.whatsappInstance.sendMessageToGroup(groupId, formattedMessage + `\n\n📎 Media: ${message.mediaType || 'Unknown'} (failed to forward)`);
+                    await this.whatsappInstance.sendMessageToGroup(groupId, '', formattedMessage + `\n\n📎 Media: ${message.mediaType || 'Unknown'} (failed to forward)`);
                 }
             } else {
                 // Text-only message or media without buffer
@@ -656,7 +688,7 @@ class ForwardingManager {
                 }
                 
                 // Send text message to WhatsApp group
-                await this.whatsappInstance.sendMessageToGroup(groupId, finalMessage);
+                await this.whatsappInstance.sendMessageToGroup(groupId, '', finalMessage);
             }
         } catch (error) {
             console.error(`Error sending Telegram message to WhatsApp group ${groupId}:`, error);

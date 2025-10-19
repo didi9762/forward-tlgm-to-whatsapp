@@ -172,11 +172,15 @@ router.post('/stop-forwarding', async (req, res) => {
 router.get('/forwarding-status', async (req, res) => {
     try {
         const config = await configManager.getConfig();
-        const isActive = forwardingManager.isTwitterConfigActive('twitter_config');
+        
+        // Check if ANY Twitter forwarding session is active
+        const sessionsInfo = await forwardingManager.getActiveTwitterSessionsInfo();
+        const isActive = sessionsInfo.length > 0;
         
         res.json({ 
             success: true,
             isActive,
+            activeSessions: sessionsInfo.length,
             config: config,
             twitterReady: twitterInstance.isReady(),
             whatsappReady: whatsappInstance.isReady()
@@ -259,11 +263,14 @@ router.post('/listen', async (req, res) => {
             });
         }
 
+        // Auto-activate config when starting to listen
+        await configManager.setActive(true);
+        
         await twitterInstance.startListening(accounts);
 
         res.json({
             success: true,
-            message: `Started listening to ${accounts.length} accounts`
+            message: `Started listening to ${accounts.length} accounts (config activated)`
         });
     } catch (error) {
         console.error('Error starting to listen:', error);
