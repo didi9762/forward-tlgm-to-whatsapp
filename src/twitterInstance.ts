@@ -376,16 +376,62 @@ export class TwitterInstance {
     private async fetchRecentTweetsFromUsers(sinceMinutes = 1, force = false): Promise<void> {
         console.log('Fetching recent tweets from users');
         if (!this.client) return;
-
+    
         const accounts = this.getListeningAccounts();
         if (accounts.length === 0) return;
-
-        // Build OR query: from:user1 OR from:user2 ...
-        const query = accounts.map(u => `from:${u.username}`).join(' OR ');
-
+    
+        // Split accounts into batches to avoid exceeding query length limit (512 chars)
+        const batches = this.splitAccountsIntoBatches(accounts);
+        console.log(`Split ${accounts.length} accounts into ${batches.length} batches`);
+    
+        for (let i = 0; i < batches.length; i++) {
+            console.log(`Processing batch ${i + 1}/${batches.length} with ${batches[i].length} accounts`);
+            await this.fetchTweetsForBatch(batches[i], sinceMinutes, force);
+        }
+    }
+    
+    private splitAccountsIntoBatches(accounts: any[]): any[][] {
+        const MAX_QUERY_LENGTH = 500; // Leave some buffer below 512 limit
+        const FILTERS = ' -"RT @" -"#ad"';
+        const batches: any[][] = [];
+        let currentBatch: any[] = [];
+        let currentQueryLength = 0;
+    
+        for (const account of accounts) {
+            const userPart = `from:${account.username}`;
+            // Calculate length including " OR " separator and filters
+            const additionalLength = currentBatch.length === 0 
+                ? userPart.length + 2 + FILTERS.length // First user: "(userPart)" + FILTERS
+                : 4 + userPart.length; // Subsequent users: " OR userPart"
+    
+            if (currentQueryLength + additionalLength > MAX_QUERY_LENGTH && currentBatch.length > 0) {
+                // Start a new batch
+                batches.push(currentBatch);
+                currentBatch = [account];
+                currentQueryLength = userPart.length + 2 + FILTERS.length;
+            } else {
+                currentBatch.push(account);
+                currentQueryLength += additionalLength;
+            }
+        }
+    
+        if (currentBatch.length > 0) {
+            batches.push(currentBatch);
+        }
+    
+        return batches;
+    }
+    
+    private async fetchTweetsForBatch(accounts: any[], sinceMinutes: number, force: boolean): Promise<void> {
+        if (!this.client || accounts.length === 0) return;
+    
+        // Build OR query for this batch
+        const userQuery = accounts.map(u => `from:${u.username}`).join(' OR ');
+        const query = `(${userQuery}) -"RT @" -"#ad"`;
+    
         // Cutoff timestamp (sinceMinutes ago)
         const startTime = new Date(Date.now() - sinceMinutes * 60 * 1000).toISOString();
-
+    
         const params: any = {
             'tweet.fields': [
                 'id','text','created_at','author_id','public_metrics',
@@ -393,17 +439,17 @@ export class TwitterInstance {
                 'note_tweet'
               ],
             'user.fields': ['id','username','name','verified'],
-            'media.fields': ['type','url','preview_image_url','variants','duration_ms'], // Added 'variants' and 'duration_ms'
+            'media.fields': ['type','url','preview_image_url','variants','duration_ms'],
             expansions: [
                 'author_id','attachments.media_keys',
                 'referenced_tweets.id','referenced_tweets.id.author_id'
               ],
-            max_results: 100, // up to 100,
+            max_results: 100,
         }
-
+    
         try {
             const sinceId = this.getLastSinceId();
-
+    
             if (sinceId && this.isSinceIdValid(sinceId) && !force) {
                 params.since_id = sinceId;
             } else {
@@ -413,11 +459,11 @@ export class TwitterInstance {
                 }
                 params.start_time = startTime;
             }
-
+            console.log('query:',query);
+    
             const res = await this.client.v2.search(query, params);
-            console.log('Fetched tweets from users:', res.tweets.length);
-
-
+            console.log('Fetched tweets from batch:', res.tweets.length);
+    
             for await (const tweet of res) {
                 // Filter includes to only contain data relevant to this specific tweet
                 const filteredIncludes = this.filterIncludesForTweet(tweet, res.includes);
@@ -425,12 +471,15 @@ export class TwitterInstance {
                 // Log tweet object to separate file with filtered includes
                 await this.handleTweet(tweet, filteredIncludes);
             }
-
-            const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
+    
+            const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => 
+                new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+            )[0];
+            
             if(lastTweet?.id){
                this.setLastSinceId(lastTweet.id);
             }
-
+    
         } catch (error: any) {
             if (error.code === 429 && error.rateLimit) {
                 console.error(this.logRateLimitError(error, 'Error fetching tweets:'));
@@ -446,15 +495,19 @@ export class TwitterInstance {
                     const retryParams = { ...params };
                     delete retryParams.since_id;
                     retryParams.start_time = startTime;
+                    console.log('query:',query);
+                    
                     
                     const res = await this.client.v2.search(query, retryParams);
-                    // console.log('Fetched tweets from users (retry):', res.tweets.length);
-
+    
                     for await (const tweet of res) {
                         await this.handleTweet(tweet, res.includes);
                     }
-
-                    const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())[0];
+    
+                    const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => 
+                        new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+                    )[0];
+                    
                     if(lastTweet?.id){
                        this.setLastSinceId(lastTweet.id);
                     }
