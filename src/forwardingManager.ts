@@ -303,16 +303,15 @@ class ForwardingManager {
                 console.log(`Updated Telegram listening to ${allChannelIds.length} sources`);
             }
 
-            // Start Twitter forwarding sessions based on configManager
+            // Start Twitter forwarding sessions based on configManager (same id as API: twitter_config)
             if (configManager.isActive()) {
                 const twitterAccounts = configManager.getTwitterAccounts();
                 
                 if (twitterAccounts.length > 0) {
                     console.log(`Starting Twitter forwarding for ${twitterAccounts.length} accounts...`);
                     
-                    // Create a config for Twitter (reuse main_config or create a twitter-specific one)
                     const twitterConfig: ListeningConfig = {
-                        id: 'twitter_main_config',
+                        id: 'twitter_config',
                         whatsappGroupId: configManager.getWhatsAppGroupId(),
                         telegramChannelIds: [], // Not used for Twitter
                         isActive: true,
@@ -320,7 +319,6 @@ class ForwardingManager {
                         lastModified: new Date()
                     };
                     
-                    // Start Twitter forwarding with all account IDs
                     const accountIds = twitterAccounts.map(acc => acc.id);
                     await this.startTwitterForwardingConfig(twitterConfig, accountIds);
                     

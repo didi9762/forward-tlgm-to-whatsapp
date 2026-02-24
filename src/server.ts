@@ -37,15 +37,17 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// Initialize forwarding on server start
+// Initialize forwarding on server start (uses forwarding status saved in DB)
 async function initializeForwarding() {
     try {
-        if (!configManager.isActive()) {
-            console.log('Configuration is not active, skipping auto-start forwarding');
+        // Ensure config is loaded from DB before checking forwarding status
+        const config = await configManager.getConfig();
+        if (!config.isActive) {
+            console.log('Configuration is not active (from DB), skipping auto-start forwarding');
             return;
         }
 
-        console.log('Configuration is active, waiting for clients to be ready...');
+        console.log('Configuration is active (from DB), waiting for clients to be ready...');
         
         // Wait for clients to be ready before starting forwarding
         const checkClientsAndStart = async () => {
@@ -55,8 +57,9 @@ async function initializeForwarding() {
             
             console.log(`Client status - Telegram: ${telegramReady}, WhatsApp: ${whatsappReady}, Twitter: ${twitterReady}`);
             
-            if (telegramReady && whatsappReady) {
-                console.log('Clients are ready, starting all active forwarding configs...');
+            // Start when WhatsApp is connected and at least one source (Telegram or Twitter) is ready
+            if (whatsappReady && (telegramReady || twitterReady)) {
+                console.log('WhatsApp and at least one source ready, starting all active forwarding configs...');
                 await forwardingManager.startAllActiveConfigs();
                 console.log('Forwarding sessions started successfully');
                 return true;
@@ -71,7 +74,7 @@ async function initializeForwarding() {
         if (!started) {
             console.log('Clients not ready yet, will retry...');
             let attempts = 0;
-            const maxAttempts = 24; // 2 minutes (24 * 5 seconds)
+            const maxAttempts = 1; // 1 minute (1 * 5 seconds)
             
             const interval = setInterval(async () => {
                 attempts++;
