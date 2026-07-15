@@ -483,6 +483,124 @@ async function deleteListeningConfig(id: string): Promise<boolean> {
   }
 }
 
+// WA → TG forwarding config
+export interface WaToTgConfig {
+  id: string;
+  whatsappGroupIds: string[];
+  telegramChatId: string;
+  isActive: boolean;
+  createdAt: Date;
+  lastModified: Date;
+}
+
+const WA_TO_TG_COLLECTION = 'wa_to_tg_config';
+
+async function saveWaToTgConfig(config: Omit<WaToTgConfig, 'id' | 'createdAt' | 'lastModified'>): Promise<WaToTgConfig | false> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+
+    const configWithMeta: WaToTgConfig = {
+      ...config,
+      id: `wa_tg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      createdAt: new Date(),
+      lastModified: new Date()
+    };
+    await coll.insertOne(configWithMeta);
+    return configWithMeta;
+  } catch (error) {
+    console.error('Error saving WA→TG config:', error);
+    return false;
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+async function updateWaToTgConfig(id: string, updates: Partial<Omit<WaToTgConfig, 'id' | 'createdAt'>>): Promise<boolean> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    const result = await coll.updateOne({ id }, { $set: { ...updates, lastModified: new Date() } });
+    return result.modifiedCount > 0;
+  } catch (error) {
+    console.error('Error updating WA→TG config:', error);
+    return false;
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+async function getWaToTgConfig(id: string): Promise<WaToTgConfig | null> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return null;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    return await coll.findOne({ id }) as unknown as WaToTgConfig | null;
+  } catch (error) {
+    console.error('Error getting WA→TG config:', error);
+    return null;
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+async function getAllWaToTgConfigs(): Promise<WaToTgConfig[]> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return [];
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    return await coll.find({}).toArray() as unknown as WaToTgConfig[];
+  } catch (error) {
+    console.error('Error getting all WA→TG configs:', error);
+    return [];
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+async function getActiveWaToTgConfigs(): Promise<WaToTgConfig[]> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return [];
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    return await coll.find({ isActive: true }).toArray() as unknown as WaToTgConfig[];
+  } catch (error) {
+    console.error('Error getting active WA→TG configs:', error);
+    return [];
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
+async function deleteWaToTgConfig(id: string): Promise<boolean> {
+  let conn: any = null;
+  try {
+    const dbResult = await database(WA_TO_TG_COLLECTION);
+    if (!dbResult) return false;
+    conn = dbResult.conn;
+    const coll = dbResult.coll;
+    const result = await coll.deleteOne({ id });
+    return result.deletedCount > 0;
+  } catch (error) {
+    console.error('Error deleting WA→TG config:', error);
+    return false;
+  } finally {
+    if (conn) await conn.close();
+  }
+}
+
 export {
   insert,
   read,
@@ -503,5 +621,11 @@ export {
   getListeningConfig,
   getAllListeningConfigs,
   getActiveListeningConfigs,
-  deleteListeningConfig
+  deleteListeningConfig,
+  saveWaToTgConfig,
+  updateWaToTgConfig,
+  getWaToTgConfig,
+  getAllWaToTgConfigs,
+  getActiveWaToTgConfigs,
+  deleteWaToTgConfig
 };

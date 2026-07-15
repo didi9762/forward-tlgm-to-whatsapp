@@ -827,6 +827,58 @@ export class TelegramInstance {
     }
 
     /**
+     * Send a text message to a Telegram chat/group/channel
+     */
+    public async sendMessageToChat(chatId: string, text: string): Promise<void> {
+        if (!this.isInitialized) {
+            throw new Error('Telegram client is not initialized');
+        }
+
+        const peer = await this.client.getEntity(chatId);
+        await this.client.sendMessage(peer, { message: text });
+        console.log(`[Telegram] Sent text message to ${chatId}`);
+    }
+
+    /**
+     * Send a media file to a Telegram chat/group/channel
+     */
+    public async sendMediaToChat(
+        chatId: string,
+        buffer: Buffer,
+        fileName: string,
+        mimeType: string,
+        caption?: string
+    ): Promise<void> {
+        if (!this.isInitialized) {
+            throw new Error('Telegram client is not initialized');
+        }
+
+        const tempDir = path.join(process.cwd(), 'temp', 'wa_to_tg');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const tempFilePath = path.join(tempDir, fileName);
+        fs.writeFileSync(tempFilePath, buffer);
+
+        try {
+            const peer = await this.client.getEntity(chatId);
+            await this.client.sendFile(peer, {
+                file: tempFilePath,
+                caption: caption || '',
+                forceDocument: !mimeType.startsWith('image/') && !mimeType.startsWith('video/'),
+            });
+            console.log(`[Telegram] Sent media to ${chatId}: ${fileName}`);
+        } finally {
+            try {
+                if (fs.existsSync(tempFilePath)) {
+                    fs.unlinkSync(tempFilePath);
+                }
+            } catch { /* ignore cleanup errors */ }
+        }
+    }
+
+    /**
      * Start keep-alive mechanism to maintain connection
      */
     public startKeepAlive(): void {

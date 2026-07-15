@@ -1,7 +1,23 @@
-import { Client, LocalAuth, MessageMedia, GroupChat } from 'whatsapp-web.js';
+import { Client, LocalAuth, MessageMedia, GroupChat, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
+
+export interface WhatsAppMessage {
+    id: string;
+    text: string;
+    date: Date;
+    senderId?: string;
+    senderName?: string;
+    groupId: string;
+    groupName: string;
+    isForwarded: boolean;
+    mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+    hasMedia: boolean;
+    mediaBuffer?: Buffer;
+    mediaFileName?: string;
+    mediaMimeType?: string;
+}
 
 // Interface for queue items
 interface QueueItem {
@@ -22,18 +38,24 @@ interface QueueItem {
 export class WhatsAppInstance {
     private client: Client;
     private groupsReady: boolean = false;
+    private cachedGroups: GroupChat[] = [];
     private isInitialized: boolean = false;
     private currentQrCode: string = '';
     private qrCodeCallback?: (qr: string) => void;
     private isRestarting: boolean = false;
     private maxRestartAttempts: number = 3;
     private restartAttempts: number = 0;
+    private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
     
     // Message queue properties
     private messageQueue: QueueItem[] = [];
     private isProcessingQueue: boolean = false;
     private queueProcessingDelay: number = 1000; // 1 second delay between messages
     private maxQueueSize: number = 100; // Maximum queue size before exit
+
+    // Incoming message handling (WA → TG forwarding)
+    private listeningGroups: Set<string> = new Set();
+    private messageHandlers: ((message: WhatsAppMessage) => void)[] = [];
 
     constructor() {
         // Clean up any existing singleton locks before creating client
@@ -54,7 +76,6 @@ export class WhatsAppInstance {
             }
         });
 
-        this.setupEventHandlers();
         this.startQueueProcessor();
     }
 
@@ -124,13 +145,11 @@ export class WhatsAppInstance {
             return;
         }
 
-        this.isRestarting = true;
         this.restartAttempts++;
 
         try {
             if (this.restartAttempts > this.maxRestartAttempts) {
                 console.error(`Max restart attempts (${this.maxRestartAttempts}) reached. Manual intervention required.`);
-                this.isRestarting = false;
                 return;
             }
 
@@ -144,8 +163,6 @@ export class WhatsAppInstance {
             
             // Wait before next attempt
             await new Promise(resolve => setTimeout(resolve, 5000));
-        } finally {
-            this.isRestarting = false;
         }
     }
 
@@ -156,29 +173,28 @@ export class WhatsAppInstance {
     public async initialize(qrCallback?: (qr: string) => void): Promise<void> {
         try {
             this.qrCodeCallback = qrCallback;
-            this.currentQrCode = ''; // Reset QR code
-            
+            this.currentQrCode = '';
+
             console.log('Initializing WhatsApp client...');
             await this.client.initialize();
-            
+
+            this.setupEventHandlers();
+
             return new Promise((resolve, reject) => {
                 this.client.once('qr', (qr) => {
-                    console.log('whatsapp need scan');
+                    console.log('WhatsApp needs scan');
                     this.currentQrCode = qr;
                     resolve();
-                })
-                
+                });
+
                 this.client.once('ready', () => {
                     this.isInitialized = true;
-                    this.currentQrCode = ''; // Clear QR code when ready
+                    this.currentQrCode = '';
                     console.log('WhatsApp client is ready!');
-                    this.client.getChats().then(() => {
-                        console.log('WhatsApp groups are ready!');
-                        this.groupsReady = true;
-                    }).catch((error) => {
-                        console.error('Error getting chats after ready:', error);
-                        this.handleError(error, 'getChats after ready');
+                    void this.loadGroupsAfterReady().catch((error) => {
+                        console.error('Error loading groups after ready:', error);
                     });
+                    this.startKeepAlive();
                     resolve();
                 });
 
@@ -187,16 +203,14 @@ export class WhatsAppInstance {
                     reject(new Error(`Authentication failed: ${msg}`));
                 });
 
-                // Set a timeout for initialization
                 setTimeout(() => {
                     if (!this.isInitialized && !this.currentQrCode) {
                         reject(new Error('WhatsApp client initialization timeout'));
                     }
-                }, 1000 * 60 * 2); // 2 minutes timeout
+                }, 1000 * 60 * 2);
             });
         } catch (error) {
             console.error('Error initializing WhatsApp client:', error);
-            // await this.handleError(error, 'initialize');
             throw error;
         }
     }
@@ -209,27 +223,37 @@ export class WhatsAppInstance {
         return this.currentQrCode;
     }
 
+    public getEngineType(): 'wwebjs' | 'baileys' {
+        return 'wwebjs';
+    }
+
+    public getPairingInfo(): { type: 'qr'; data: string } | { type: 'code'; data: string } | null {
+        if (this.currentQrCode) {
+            return { type: 'qr', data: this.currentQrCode };
+        }
+        return null;
+    }
+
+    public async pairWithPhone(_phone: string): Promise<string> {
+        throw new Error('Pairing code is only supported with the Baileys engine (set WHATSAPP_ENGINE=baileys)');
+    }
+
     /**
      * Restart the WhatsApp client
      */
     public async restart(): Promise<void> {
+        if (this.isRestarting) return;
+        this.isInitialized = false;
+        this.groupsReady = false;
+        this.cachedGroups = [];
+        this.isRestarting = true;
+        try {
+            await this.client.destroy();
+        } catch (e) {
+            console.error('Error destroying WhatsApp client:', e);
+        }
         try {
             console.log('Restarting WhatsApp client...');
-
-
-            //just exit the process and than the client will be restarted by the constructor
-            process.exit(-1);
-
-            this.isRestarting = true;
-            
-            // Add timeout wrapper for destroy operation
-            await this.destroyWithTimeout(10000); // 10 second timeout
-            
-            this.isInitialized = false;
-            console.log('WhatsApp client destroyed, waiting for 1.5 seconds to restart');
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // Create new client instance
             this.client = new Client({
                 authStrategy: new LocalAuth({
                     clientId: "telegram-forwarder"
@@ -242,21 +266,71 @@ export class WhatsAppInstance {
                         "--disable-software-rasterizer",
                         '--max-old-space-size=4096',
                         '--no-sandbox',
-                      ],
+                    ],
                 }
             });
-
-            this.setupEventHandlers();
             await this.initialize();
-            
             console.log('WhatsApp client restarted successfully');
         } catch (error) {
             console.error('Error restarting WhatsApp client:', error);
-            this.isRestarting = false
             throw error;
-        }finally{
-            this.isRestarting = false
+        } finally {
+            this.isRestarting = false;
         }
+    }
+
+    /**
+     * Load and cache groups immediately after the client is ready.
+     * If getChats() fails, falls back to a light store read (id + name only)
+     * that skips the broken GroupMetadata.update path.
+     */
+    private async loadGroupsAfterReady(): Promise<void> {
+        const maxAttempts = 3;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const chats = await this.client.getChats();
+                this.cachedGroups = chats.filter(chat => chat.isGroup) as GroupChat[];
+                this.groupsReady = true;
+                console.log(`WhatsApp groups are ready! Cached ${this.cachedGroups.length} groups`);
+                return;
+            } catch (error: any) {
+                console.warn(`[WhatsApp] getChats failed (${attempt}/${maxAttempts}): ${error?.message || error}`);
+                if (attempt < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        }
+
+        // Fallback: light store read via pupPage — pulls id + name without GroupMetadata.update
+        try {
+            const pupPage = this.client.pupPage;
+            if (!pupPage) throw new Error('pupPage not available');
+
+            const groups: { id: string; name: string }[] = await pupPage.evaluate(() => {
+                const g = globalThis as any;
+                const store = g.Store || g.window?.Store;
+                if (!store?.Chat) return [];
+                return store.Chat.getModelsArray()
+                    .filter((c: any) => c.isGroup)
+                    .map((c: any) => ({
+                        id: c.id?._serialized || c.id?.toString() || '',
+                        name: c.name || c.formattedTitle || '',
+                    }))
+                    .filter((g: any) => g.id);
+            });
+
+            if (groups.length > 0) {
+                this.cachedGroups = groups as any;
+                this.groupsReady = true;
+                console.log(`[WhatsApp] Light store fetch: cached ${groups.length} groups`);
+                return;
+            }
+        } catch (storeErr: any) {
+            console.warn(`[WhatsApp] Light store fallback failed: ${storeErr?.message || storeErr}`);
+        }
+
+        console.warn('[WhatsApp] Could not load groups — will retry on next getGroups() call');
     }
 
     /**
@@ -341,6 +415,8 @@ export class WhatsAppInstance {
             if (this.isInitialized) {
                 await this.destroyWithTimeout(10000); // Use timeout here too
                 this.isInitialized = false;
+                this.groupsReady = false;
+                this.cachedGroups = [];
             }
 
             // Delete .wwebjs_auth and .wwebjs_cache directories
@@ -378,8 +454,6 @@ export class WhatsAppInstance {
                 }
             });
 
-            this.setupEventHandlers();
-            
             // Initialize the new client
             await this.initialize();
             
@@ -409,11 +483,7 @@ export class WhatsAppInstance {
                 return 'WhatsApp client is restarting';
             }
 
-            const chats = await this.client.getChats();
-            const groups = chats.filter(chat => chat.isGroup) as GroupChat[];
-            
-            // console.log(`Found ${groups.length} groups`);
-            return groups;
+            return this.cachedGroups;
         } catch (error) {
             console.error('Error getting groups:', error);
             await this.handleError(error, 'getGroups');
@@ -678,14 +748,15 @@ export class WhatsAppInstance {
         });
 
         this.client.on('ready', () => {
-            // console.log('WhatsApp client is ready');
             this.currentQrCode = ''; // Clear QR code when ready
+            // Chats are loaded only from initialize()'s ready handler via loadGroupsAfterReady()
         });
 
         this.client.on('disconnected', (reason) => {
             console.log('WhatsApp client disconnected:', reason);
             this.isInitialized = false;
             this.groupsReady = false;
+            this.cachedGroups = [];
             
             // Handle disconnection with potential restart
             this.handleError(new Error(`Client disconnected: ${reason}`), 'disconnected event');
@@ -695,6 +766,7 @@ export class WhatsAppInstance {
             console.error('Authentication failure:', message);
             this.isInitialized = false;
             this.groupsReady = false;
+            this.cachedGroups = [];
         });
 
         // Add error event handler
@@ -709,8 +781,100 @@ export class WhatsAppInstance {
             if (state === 'CONFLICT' || state === 'UNPAIRED') {
                 this.isInitialized = false;
                 this.groupsReady = false;
+                this.cachedGroups = [];
             }
         });
+
+        // Incoming message handler for WA → TG forwarding
+        this.client.on('message', async (msg: Message) => {
+            try {
+                if (this.messageHandlers.length === 0 || this.listeningGroups.size === 0) return;
+
+                const chat = await msg.getChat();
+                if (!chat.isGroup) return;
+
+                const groupId = chat.id._serialized;
+                if (!this.listeningGroups.has(groupId)) return;
+
+                const contact = await msg.getContact();
+                const senderName = contact.pushname || contact.name || contact.number;
+
+                const waMessage: WhatsAppMessage = {
+                    id: msg.id._serialized,
+                    text: msg.body || '',
+                    date: new Date(msg.timestamp * 1000),
+                    senderId: msg.author || msg.from,
+                    senderName,
+                    groupId,
+                    groupName: chat.name,
+                    isForwarded: msg.isForwarded,
+                    hasMedia: msg.hasMedia,
+                };
+
+                if (msg.hasMedia) {
+                    try {
+                        const media = await msg.downloadMedia();
+                        if (media) {
+                            waMessage.mediaBuffer = Buffer.from(media.data, 'base64');
+                            waMessage.mediaMimeType = media.mimetype;
+                            waMessage.mediaFileName = media.filename || `media_${msg.id.id}`;
+
+                            if (media.mimetype.startsWith('image/')) {
+                                waMessage.mediaType = 'image';
+                            } else if (media.mimetype.startsWith('video/')) {
+                                waMessage.mediaType = 'video';
+                            } else if (media.mimetype.startsWith('audio/')) {
+                                waMessage.mediaType = 'audio';
+                            } else {
+                                waMessage.mediaType = 'document';
+                            }
+
+                            if (!waMessage.mediaFileName.includes('.')) {
+                                const ext = media.mimetype.split('/')[1]?.split(';')[0];
+                                if (ext) waMessage.mediaFileName += `.${ext}`;
+                            }
+                        }
+                    } catch (mediaError) {
+                        console.error('Error downloading WhatsApp media:', mediaError);
+                    }
+                }
+
+                for (const handler of this.messageHandlers) {
+                    try {
+                        handler(waMessage);
+                    } catch (handlerError) {
+                        console.error('Error in WhatsApp message handler:', handlerError);
+                    }
+                }
+            } catch (error) {
+                console.error('Error processing incoming WhatsApp message:', error);
+            }
+        });
+    }
+
+    public onMessage(handler: (message: WhatsAppMessage) => void): void {
+        this.messageHandlers.push(handler);
+    }
+
+    public removeMessageHandler(handler: (message: WhatsAppMessage) => void): void {
+        const index = this.messageHandlers.indexOf(handler);
+        if (index > -1) {
+            this.messageHandlers.splice(index, 1);
+        }
+    }
+
+    public startListeningToGroups(groupIds: string[]): void {
+        groupIds.forEach(id => this.listeningGroups.add(id));
+        console.log(`[WhatsApp] Now listening to ${this.listeningGroups.size} groups`);
+    }
+
+    public stopListeningToGroups(groupIds: string[]): void {
+        groupIds.forEach(id => this.listeningGroups.delete(id));
+        console.log(`[WhatsApp] Now listening to ${this.listeningGroups.size} groups`);
+    }
+
+    public getListeningGroups(): string[] {
+        return Array.from(this.listeningGroups);
     }
 
     /**
@@ -848,6 +1012,28 @@ export class WhatsAppInstance {
     public setQueueDelay(delayMs: number): void {
         this.queueProcessingDelay = Math.max(100, delayMs); // Minimum 100ms delay
         console.log(`[Queue] Processing delay set to ${this.queueProcessingDelay}ms`);
+    }
+
+    private async keepAlive(): Promise<void> {
+        if (this.isRestarting) return;
+        if (this.client?.info) {
+            this.client.getState().then((state) => {
+                console.log('Connection kept alive:', state);
+            }).catch((err) => {
+                console.error('Error keeping connection alive:', err);
+                this.restart();
+            });
+        } else {
+            console.log('undefined client, restarting');
+            this.restart();
+        }
+    }
+
+    public startKeepAlive(): void {
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+        }
+        this.keepAliveInterval = setInterval(this.keepAlive.bind(this), 20 * 60 * 1000);
     }
 
     /**

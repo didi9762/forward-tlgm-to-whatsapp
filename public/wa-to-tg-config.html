@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp → Telegram Forwarding</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .nav-header {
+            background: #343a40;
+            padding: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-logo {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .nav-logo:hover { color: #007bff; }
+
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: #495057;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .nav-btn:hover {
+            background: #007bff;
+            transform: translateY(-1px);
+        }
+
+        .nav-btn.active { background: #007bff; }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 4px;
+            color: #888;
+            font-size: 0.85em;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #51cf66 0%, #40c057 100%);
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 5px 15px rgba(81, 207, 102, 0.4);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #fcc419 0%, #fab005 100%);
+            color: #333;
+        }
+
+        .btn-warning:hover {
+            box-shadow: 0 5px 15px rgba(252, 196, 25, 0.4);
+        }
+
+        .config-list {
+            display: grid;
+            gap: 20px;
+        }
+
+        .config-item {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .config-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .config-item.active {
+            border-color: #51cf66;
+            background: #f1f9f1;
+        }
+
+        .config-item.inactive {
+            border-color: #ff6b6b;
+            background: #fff5f5;
+        }
+
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .config-id {
+            font-family: 'Courier New', monospace;
+            background: #e9ecef;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-enabled {
+            background: #51cf66;
+            color: white;
+        }
+
+        .status-disabled {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .status-running {
+            background: #339af0;
+            color: white;
+        }
+
+        .config-details {
+            margin-bottom: 15px;
+        }
+
+        .config-details p {
+            margin-bottom: 8px;
+        }
+
+        .group-tags {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 5px;
+        }
+
+        .group-tags span {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin: 2px;
+            font-size: 0.85em;
+            word-break: break-all;
+        }
+
+        .group-tags span.tg-tag {
+            background: #0088cc;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .actions .btn {
+            font-size: 14px;
+            padding: 8px 16px;
+            margin: 0;
+        }
+
+        .loading-text {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #fff5f5;
+            border: 2px solid #ff6b6b;
+            color: #c92a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .success {
+            background: #f1f9f1;
+            border: 2px solid #51cf66;
+            color: #2b8a3e;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .status-bar .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95em;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .status-dot.green { background: #51cf66; }
+        .status-dot.red { background: #ff6b6b; }
+        .status-dot.yellow { background: #fcc419; }
+
+        .selector-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .selector-row .form-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .selector-row .btn {
+            margin-bottom: 0;
+            white-space: nowrap;
+        }
+
+        .selected-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .selected-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #667eea;
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+
+        .selected-item.wa-item { background: #25D366; }
+        .selected-item.tg-item { background: #0088cc; }
+
+        .selected-item .remove-item {
+            cursor: pointer;
+            font-weight: bold;
+            opacity: 0.8;
+            padding: 0 2px;
+        }
+
+        .selected-item .remove-item:hover { opacity: 1; }
+
+        @media (max-width: 768px) {
+            .container { padding: 10px; }
+            .header { padding: 20px; }
+            .header h1 { font-size: 1.8em; }
+            .card { padding: 20px; }
+            .config-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            .nav-container {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            .nav-buttons {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .selector-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav-header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">🤖 Forwarder Bot</a>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Home</a>
+                <a href="/whatsapp-config.html" class="nav-btn">📱 WhatsApp</a>
+                <a href="/telegramConfig.html" class="nav-btn">💬 Telegram</a>
+                <a href="/wa-to-tg-config.html" class="nav-btn active">🔄 WA→TG</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>🔄 WhatsApp → Telegram Forwarding</h1>
+            <p>Forward messages from WhatsApp groups to Telegram chats</p>
+        </div>
+
+        <!-- Status -->
+        <div class="card">
+            <h2>📊 Status</h2>
+            <div class="status-bar" id="statusBar">
+                <div class="status-item">
+                    <div class="status-dot yellow" id="waDot"></div>
+                    <span id="waStatus">WhatsApp: Checking...</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot yellow" id="tgDot"></div>
+                    <span id="tgStatus">Telegram: Checking...</span>
+                </div>
+                <div class="status-item">
+                    <div class="status-dot yellow" id="sessionsDot"></div>
+                    <span id="sessionsStatus">Sessions: Checking...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create New Configuration -->
+        <div class="card">
+            <h2>➕ Create New Configuration</h2>
+            <form id="createConfigForm">
+                <div class="form-group">
+                    <label>WhatsApp Groups to listen to:</label>
+                    <div class="selector-row">
+                        <div class="form-group">
+                            <select id="waGroupSelect">
+                                <option value="">Loading groups...</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn" onclick="addSelectedWaGroup()">Add</button>
+                        <button type="button" class="btn btn-warning" onclick="loadWaGroups()">Refresh</button>
+                    </div>
+                    <div class="selected-items" id="selectedWaGroups"></div>
+                    <small>Select the WhatsApp groups whose messages will be forwarded</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="telegramChatId">Telegram Chat/Group/Channel ID:</label>
+                    <div class="selector-row">
+                        <div class="form-group">
+                            <select id="tgChatSelect">
+                                <option value="">Loading chats...</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn" onclick="useTgSelection()">Use Selected</button>
+                        <button type="button" class="btn btn-warning" onclick="loadTgChats()">Refresh</button>
+                    </div>
+                    <input type="text" id="telegramChatId" placeholder="e.g. -1001234567890 or @channel_username" required>
+                    <small>The Telegram chat where messages will be sent</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="isActive" checked>
+                        Enable immediately
+                    </label>
+                </div>
+
+                <button type="submit" class="btn">Create Configuration</button>
+            </form>
+        </div>
+
+        <!-- Global Actions -->
+        <div class="card">
+            <h2>🎮 Global Actions</h2>
+            <button onclick="startAll()" class="btn btn-success">Start All Active</button>
+            <button onclick="stopAll()" class="btn btn-danger">Stop All</button>
+            <button onclick="restartAll()" class="btn btn-warning">Restart All</button>
+            <button onclick="loadConfigs()" class="btn">Refresh List</button>
+        </div>
+
+        <!-- Messages -->
+        <div id="messages"></div>
+
+        <!-- Configuration List -->
+        <div class="card">
+            <h2>📋 Current Configurations</h2>
+            <div id="configList" class="loading-text">
+                Loading configurations...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let configs = [];
+        let selectedWaGroups = [];
+        let waGroupsMap = {};
+        let tgChatsMap = {};
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfigs();
+            loadStatus();
+            loadWaGroups();
+            loadTgChats();
+        });
+
+        // --- Status ---
+
+        async function loadStatus() {
+            try {
+                const res = await fetch('/wa-to-tg/status');
+                const data = await res.json();
+                if (data.success) {
+                    setDot('waDot', data.whatsappReady);
+                    document.getElementById('waStatus').textContent = `WhatsApp: ${data.whatsappReady ? 'Connected' : 'Disconnected'}`;
+                    setDot('tgDot', data.telegramReady);
+                    document.getElementById('tgStatus').textContent = `Telegram: ${data.telegramReady ? 'Connected' : 'Disconnected'}`;
+                    setDot('sessionsDot', data.activeSessions > 0);
+                    document.getElementById('sessionsStatus').textContent = `Active Sessions: ${data.activeSessions}`;
+                }
+            } catch (e) {
+                console.error('Status error:', e);
+            }
+        }
+
+        function setDot(id, ok) {
+            const dot = document.getElementById(id);
+            dot.className = 'status-dot ' + (ok ? 'green' : 'red');
+        }
+
+        // --- WhatsApp Groups Dropdown ---
+
+        async function loadWaGroups() {
+            const sel = document.getElementById('waGroupSelect');
+            sel.innerHTML = '<option value="">Loading...</option>';
+            try {
+                const res = await fetch('/whatsapp/groups');
+                const data = await res.json();
+                if (data.success && data.groups) {
+                    waGroupsMap = {};
+                    sel.innerHTML = '<option value="">-- Select a group --</option>';
+                    data.groups.forEach(g => {
+                        const gid = g.id._serialized || g.id;
+                        waGroupsMap[gid] = g.name;
+                        const opt = document.createElement('option');
+                        opt.value = gid;
+                        opt.textContent = `${g.name} (${gid})`;
+                        sel.appendChild(opt);
+                    });
+                } else {
+                    sel.innerHTML = '<option value="">No groups found</option>';
+                }
+            } catch (e) {
+                sel.innerHTML = '<option value="">Error loading groups</option>';
+            }
+        }
+
+        function addSelectedWaGroup() {
+            const sel = document.getElementById('waGroupSelect');
+            const val = sel.value;
+            if (!val || selectedWaGroups.includes(val)) return;
+            selectedWaGroups.push(val);
+            renderSelectedWaGroups();
+        }
+
+        function removeWaGroup(id) {
+            selectedWaGroups = selectedWaGroups.filter(g => g !== id);
+            renderSelectedWaGroups();
+        }
+
+        function renderSelectedWaGroups() {
+            const container = document.getElementById('selectedWaGroups');
+            container.innerHTML = selectedWaGroups.map(id => {
+                const name = waGroupsMap[id] || id;
+                return `<div class="selected-item wa-item">
+                    📱 ${name}
+                    <span class="remove-item" onclick="removeWaGroup('${id}')">&times;</span>
+                </div>`;
+            }).join('');
+        }
+
+        // --- Telegram Chats Dropdown ---
+
+        async function loadTgChats() {
+            const sel = document.getElementById('tgChatSelect');
+            sel.innerHTML = '<option value="">Loading...</option>';
+            try {
+                const res = await fetch('/telegram/channels');
+                const data = await res.json();
+                if (data.success && data.channels) {
+                    tgChatsMap = {};
+                    sel.innerHTML = '<option value="">-- Select a chat --</option>';
+                    data.channels.forEach(ch => {
+                        tgChatsMap[ch.id] = ch.title;
+                        const opt = document.createElement('option');
+                        opt.value = ch.id;
+                        const typeLabel = ch.isChannel ? 'Channel' : ch.isMegagroup ? 'Supergroup' : 'Group';
+                        opt.textContent = `${ch.title} [${typeLabel}] (${ch.id})`;
+                        sel.appendChild(opt);
+                    });
+                } else {
+                    sel.innerHTML = '<option value="">No chats found (Telegram may not be connected)</option>';
+                }
+            } catch (e) {
+                sel.innerHTML = '<option value="">Error loading chats</option>';
+            }
+        }
+
+        function useTgSelection() {
+            const sel = document.getElementById('tgChatSelect');
+            if (sel.value) {
+                document.getElementById('telegramChatId').value = sel.value;
+            }
+        }
+
+        // --- Create Config ---
+
+        document.getElementById('createConfigForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const telegramChatId = document.getElementById('telegramChatId').value.trim();
+            const isActive = document.getElementById('isActive').checked;
+
+            if (selectedWaGroups.length === 0) {
+                showMessage('Please select at least one WhatsApp group', 'error');
+                return;
+            }
+            if (!telegramChatId) {
+                showMessage('Please enter a Telegram Chat ID', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/wa-to-tg/configs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ whatsappGroupIds: selectedWaGroups, telegramChatId, isActive })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showMessage('Configuration created successfully!', 'success');
+                    selectedWaGroups = [];
+                    renderSelectedWaGroups();
+                    document.getElementById('telegramChatId').value = '';
+                    document.getElementById('isActive').checked = true;
+                    loadConfigs();
+                    loadStatus();
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Network error: ' + e.message, 'error');
+            }
+        });
+
+        // --- Load Configs ---
+
+        async function loadConfigs() {
+            try {
+                const res = await fetch('/wa-to-tg/configs');
+                const data = await res.json();
+                if (data.success) {
+                    configs = data.configs;
+                    renderConfigs();
+                } else {
+                    document.getElementById('configList').innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                }
+            } catch (e) {
+                document.getElementById('configList').innerHTML = `<div class="error">Network error: ${e.message}</div>`;
+            }
+        }
+
+        function renderConfigs() {
+            const el = document.getElementById('configList');
+            if (configs.length === 0) {
+                el.innerHTML = '<p>No configurations yet. Create one above!</p>';
+                return;
+            }
+
+            el.innerHTML = configs.map(c => `
+                <div class="config-item ${c.isActive ? 'active' : 'inactive'}">
+                    <div class="config-header">
+                        <div class="config-id">${c.id}</div>
+                        <span class="status-badge ${c.isActive ? 'status-enabled' : 'status-disabled'}">
+                            ${c.isActive ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                    <div class="config-details">
+                        <p><strong>Telegram Target:</strong> <span class="config-id">${c.telegramChatId}</span>
+                            ${tgChatsMap[c.telegramChatId] ? ' (' + tgChatsMap[c.telegramChatId] + ')' : ''}
+                        </p>
+                        <p><strong>WhatsApp Groups (${c.whatsappGroupIds.length}):</strong></p>
+                        <div class="group-tags">
+                            ${c.whatsappGroupIds.map(id => {
+                                const name = waGroupsMap[id];
+                                return `<span>${name ? name : id}</span>`;
+                            }).join('')}
+                        </div>
+                        <p style="margin-top:10px"><strong>Created:</strong> ${new Date(c.createdAt).toLocaleString()}</p>
+                    </div>
+                    <div class="actions">
+                        ${c.isActive
+                            ? `<button onclick="toggleConfig('${c.id}', false)" class="btn btn-danger">Disable</button>`
+                            : `<button onclick="toggleConfig('${c.id}', true)" class="btn btn-success">Enable</button>`
+                        }
+                        <button onclick="deleteConfig('${c.id}')" class="btn btn-danger">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // --- Actions ---
+
+        async function toggleConfig(id, active) {
+            try {
+                const res = await fetch(`/wa-to-tg/configs/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ isActive: active })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showMessage(`Configuration ${active ? 'enabled' : 'disabled'}`, 'success');
+                    loadConfigs();
+                    loadStatus();
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Network error: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteConfig(id) {
+            if (!confirm('Delete this configuration? This cannot be undone.')) return;
+            try {
+                const res = await fetch(`/wa-to-tg/configs/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    showMessage('Configuration deleted', 'success');
+                    loadConfigs();
+                    loadStatus();
+                } else {
+                    showMessage('Error: ' + data.error, 'error');
+                }
+            } catch (e) {
+                showMessage('Network error: ' + e.message, 'error');
+            }
+        }
+
+        async function startAll() {
+            try {
+                const res = await fetch('/wa-to-tg/start-all', { method: 'POST' });
+                const data = await res.json();
+                showMessage(data.success ? 'All active configs started!' : 'Error: ' + data.error, data.success ? 'success' : 'error');
+                loadStatus();
+            } catch (e) { showMessage('Network error: ' + e.message, 'error'); }
+        }
+
+        async function stopAll() {
+            try {
+                const res = await fetch('/wa-to-tg/stop-all', { method: 'POST' });
+                const data = await res.json();
+                showMessage(data.success ? 'All configs stopped!' : 'Error: ' + data.error, data.success ? 'success' : 'error');
+                loadStatus();
+            } catch (e) { showMessage('Network error: ' + e.message, 'error'); }
+        }
+
+        async function restartAll() {
+            try {
+                const res = await fetch('/wa-to-tg/restart-all', { method: 'POST' });
+                const data = await res.json();
+                showMessage(data.success ? 'All configs restarted!' : 'Error: ' + data.error, data.success ? 'success' : 'error');
+                loadStatus();
+            } catch (e) { showMessage('Network error: ' + e.message, 'error'); }
+        }
+
+        // --- Messages ---
+
+        function showMessage(text, type) {
+            const container = document.getElementById('messages');
+            const el = document.createElement('div');
+            el.className = type;
+            el.textContent = text;
+            container.appendChild(el);
+            setTimeout(() => el.remove(), 5000);
+        }
+    </script>
+</body>
+</html>

@@ -6,8 +6,9 @@ import configApi from './configApi';
 import telegramApi from './telegramApi';
 import twitterApi from './twitterApi';
 import aiApi from './aiApi';
+import waToTgApi from './waToTgApi';
 import { configManager } from './configManager';
-import { forwardingManager, telegramInstance, whatsappInstance, twitterInstance } from './sharedInstances';
+import { forwardingManager, telegramInstance, whatsappInstance, twitterInstance, waToTgForwardingManager } from './sharedInstances';
 
 const app = express();
 const PORT = process.env.PORT || 1234;
@@ -26,6 +27,7 @@ app.use('/telegram', telegramApi);
 app.use('/twitter', twitterApi);
 app.use('/config', configApi);
 app.use('/ai', aiApi);
+app.use('/wa-to-tg', waToTgApi);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -50,42 +52,56 @@ async function initializeForwarding() {
         console.log('Configuration is active (from DB), waiting for clients to be ready...');
         
         // Wait for clients to be ready before starting forwarding
-        const checkClientsAndStart = async () => {
+        const checkClientsAndStart = async (label: string) => {
             const telegramReady = telegramInstance.isReady();
             const whatsappReady = whatsappInstance.isReady();
             const twitterReady = twitterInstance.isReady();
-            
-            console.log(`Client status - Telegram: ${telegramReady}, WhatsApp: ${whatsappReady}, Twitter: ${twitterReady}`);
-            
-            // Start when WhatsApp is connected and at least one source (Telegram or Twitter) is ready
+
             if (whatsappReady && (telegramReady || twitterReady)) {
-                console.log('WhatsApp and at least one source ready, starting all active forwarding configs...');
+                console.log(`[Forwarding/${label}] All required clients ready (WA=${whatsappReady} TG=${telegramReady} TW=${twitterReady}). Starting forwarding...`);
                 await forwardingManager.startAllActiveConfigs();
-                console.log('Forwarding sessions started successfully');
+                await waToTgForwardingManager.startAllActiveConfigs();
+                console.log(`[Forwarding/${label}] Forwarding sessions started successfully`);
                 return true;
             }
+
+            // Log why we're still waiting
+            const missing: string[] = [];
+            if (!whatsappReady) missing.push('WhatsApp');
+            if (!telegramReady && !twitterReady) missing.push('Telegram/Twitter (need at least one)');
+            console.log(`[Forwarding/${label}] Not ready yet — waiting for: ${missing.join(', ')} (WA=${whatsappReady} TG=${telegramReady} TW=${twitterReady})`);
             return false;
         };
         
         // Try immediately
-        const started = await checkClientsAndStart();
+        const started = await checkClientsAndStart('init');
         
-        // If not ready, poll every 5 seconds for up to 2 minutes
+        // If not ready, poll every 5 seconds for up to 2 minutes, then fall back to slow polling
         if (!started) {
-            console.log('Clients not ready yet, will retry...');
             let attempts = 0;
-            const maxAttempts = 1; // 1 minute (1 * 5 seconds)
+            const maxFastAttempts = 24; // 2 minutes (24 × 5 seconds)
             
-            const interval = setInterval(async () => {
+            const fastInterval = setInterval(async () => {
                 attempts++;
-                console.log(`Retry attempt ${attempts}/${maxAttempts} to start forwarding...`);
-                
-                const started = await checkClientsAndStart();
+                const started = await checkClientsAndStart(`fast ${attempts}/${maxFastAttempts}`);
                 if (started) {
-                    clearInterval(interval);
-                } else if (attempts >= maxAttempts) {
-                    console.log('Max attempts reached, giving up on auto-start. You can manually start forwarding via the API.');
-                    clearInterval(interval);
+                    clearInterval(fastInterval);
+                } else if (attempts >= maxFastAttempts) {
+                    clearInterval(fastInterval);
+                    console.log('[Forwarding] Fast-poll window (2 min) expired. Switching to background checks every 2 min for up to 30 min...');
+
+                    let slowAttempts = 0;
+                    const maxSlowAttempts = 15; // 15 × 2 min = 30 minutes
+                    const slowInterval = setInterval(async () => {
+                        slowAttempts++;
+                        const started = await checkClientsAndStart(`bg ${slowAttempts}/${maxSlowAttempts}`);
+                        if (started) {
+                            clearInterval(slowInterval);
+                        } else if (slowAttempts >= maxSlowAttempts) {
+                            console.log('[Forwarding] Background checks exhausted (32 min total). Use the UI to start forwarding manually.');
+                            clearInterval(slowInterval);
+                        }
+                    }, 2 * 60 * 1000);
                 }
             }, 5000);
         }

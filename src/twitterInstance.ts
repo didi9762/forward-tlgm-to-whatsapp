@@ -1,8 +1,28 @@
 import { TwitterApi, ETwitterStreamEvent, TweetV2, UserV2 } from 'twitter-api-v2';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 import { configManager, TwitterAccount } from './configManager';
 import { getActiveListeningConfigs } from './db';
+
+dotenv.config();
+
+function formatTwitterError(error: unknown): string {
+    if (error instanceof Error) {
+        const apiError = error as Error & { code?: number; data?: unknown };
+        const parts = [apiError.message];
+        if (apiError.code) parts.push(`code ${apiError.code}`);
+        if (apiError.data) {
+            try {
+                parts.push(JSON.stringify(apiError.data));
+            } catch {
+                parts.push('[unserializable error data]');
+            }
+        }
+        return parts.join(' - ');
+    }
+    return String(error);
+}
 
 export interface TwitterMessage {
     id: string;
@@ -89,7 +109,7 @@ export class TwitterInstance {
             }
 
         } catch (error) {
-            console.error('Error initializing Twitter client:', error);
+            console.error('Error initializing Twitter client:', formatTwitterError(error));
             throw error;
         }
     }

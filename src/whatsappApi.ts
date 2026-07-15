@@ -12,6 +12,8 @@ router.get('/status', async (req, res) => {
     try {
         const isReady = whatsappInstance.isReady();
         let clientInfo = null;
+        const engine = whatsappInstance.getEngineType();
+        const pairingInfo = whatsappInstance.getPairingInfo();
         
         if (isReady) {
             clientInfo = await whatsappInstance.getClientInfo();
@@ -20,13 +22,54 @@ router.get('/status', async (req, res) => {
         res.json({
             success: true,
             isReady: isReady,
+            engine,
             hasQrCode: !!whatsappInstance.getCurrentQrCode(),
+            pairingInfo,
+            phoneNumber: engine === 'baileys' && 'getPhoneNumber' in whatsappInstance
+                ? (whatsappInstance as any).getPhoneNumber()
+                : null,
             clientInfo: clientInfo
         });
     } catch (error: any) {
         res.status(500).json({
             success: false,
             message: 'Error getting client status',
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Pair Baileys with a phone number (returns pairing code)
+ */
+router.post('/pair', async (req, res) => {
+    try {
+        if (whatsappInstance.getEngineType() !== 'baileys') {
+            return res.status(400).json({
+                success: false,
+                message: 'Pairing code is only available when WHATSAPP_ENGINE=baileys'
+            });
+        }
+
+        const phone = String(req.body?.phoneNumber || req.body?.phone || '').replace(/[^0-9]/g, '');
+        if (!phone) {
+            return res.status(400).json({
+                success: false,
+                message: 'phoneNumber is required (digits only, with country code, e.g. 972501234567)'
+            });
+        }
+
+        const code = await whatsappInstance.pairWithPhone(phone);
+        res.json({
+            success: true,
+            message: 'Pairing initiated. Enter the code in WhatsApp > Linked Devices.',
+            pairingCode: code,
+            phoneNumber: phone
+        });
+    } catch (error: any) {
+        res.status(500).json({
+            success: false,
+            message: 'Error starting pairing',
             error: error.message
         });
     }
@@ -79,7 +122,7 @@ router.get('/groups', async (req, res) => {
                 id: group.id._serialized,
                 name: group.name,
                 participantsCount: group.participants?.length || 0,
-                description: group.description || null
+                description: (group as any).description || null
             }))
         });
     } catch (error: any) {
@@ -101,7 +144,9 @@ router.get('/screenshot', async (req, res) => {
         if (!screenshot) {
             return res.status(400).json({
                 success: false,
-                message: 'Screenshot not available'
+                message: whatsappInstance.getEngineType() === 'baileys'
+                    ? 'Screenshots are not available with Baileys engine'
+                    : 'Screenshot not available'
             });
         }
 
@@ -125,10 +170,19 @@ router.get('/screenshot', async (req, res) => {
 router.post('/reset', async (req, res) => {
     try {
         await whatsappInstance.resetInstance();
+
+        // For Baileys without a phone number, don't auto-reinit (pair endpoint will)
+        if (whatsappInstance.getEngineType() === 'wwebjs') {
+            // resetInstance already reinitializes for wwebjs
+        } else if ('getPhoneNumber' in whatsappInstance && (whatsappInstance as any).getPhoneNumber()) {
+            await whatsappInstance.initialize();
+        }
         
         res.json({
             success: true,
-            message: 'WhatsApp instance reset successfully. Auth and cache directories deleted.'
+            message: whatsappInstance.getEngineType() === 'baileys'
+                ? 'Baileys auth cleared. Enter a phone number to request a new pairing code.'
+                : 'WhatsApp instance reset successfully. Auth and cache directories deleted.'
         });
     } catch (error: any) {
         res.status(500).json({

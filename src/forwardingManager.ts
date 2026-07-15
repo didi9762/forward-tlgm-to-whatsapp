@@ -1,8 +1,8 @@
 import { TelegramInstance, TelegramMessage } from './telegramInstance';
-import { WhatsAppInstance } from './whatsappInstance';
 import { TwitterInstance, TwitterMessage } from './twitterInstance';
 import { ListeningConfig } from './db';
 import { database } from './db';
+import { WhatsAppEngine } from './whatsappEngine';
 import { askModel } from './openRouter';
 import fs from 'fs';
 import path from 'path';
@@ -27,12 +27,12 @@ export interface TwitterForwardingSession {
 
 class ForwardingManager {
     private telegramInstance: TelegramInstance;
-    private whatsappInstance: WhatsAppInstance;
+    private whatsappInstance: WhatsAppEngine;
     private twitterInstance: TwitterInstance;
     private activeSessions: Map<string, ForwardingSession> = new Map();
     private activeTwitterSessions: Map<string, TwitterForwardingSession> = new Map();
 
-    constructor(telegramInstance: TelegramInstance, whatsappInstance: WhatsAppInstance, twitterInstance: TwitterInstance) {
+    constructor(telegramInstance: TelegramInstance, whatsappInstance: WhatsAppEngine, twitterInstance: TwitterInstance) {
         this.telegramInstance = telegramInstance;
         this.whatsappInstance = whatsappInstance;
         this.twitterInstance = twitterInstance;
