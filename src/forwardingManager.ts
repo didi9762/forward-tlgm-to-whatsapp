@@ -36,6 +36,8 @@ class ForwardingManager {
         this.telegramInstance = telegramInstance;
         this.whatsappInstance = whatsappInstance;
         this.twitterInstance = twitterInstance;
+        // Don't burn Twitter search quota while WhatsApp can't deliver
+        this.twitterInstance.setDeliveryReadyCheck(() => this.whatsappInstance.isReady());
     }
 
     /**
@@ -200,6 +202,10 @@ class ForwardingManager {
                         console.log(`TwitterForwardingManager: Tweet forwarded successfully`);
                     } catch (error) {
                         console.error(`Error forwarding tweet from config ${config.id}:`, error);
+                        const messageText = error instanceof Error ? error.message : String(error);
+                        if (!this.whatsappInstance.isReady() || /not initialized/i.test(messageText)) {
+                            this.twitterInstance.pausePolling('WhatsApp client is not initialized');
+                        }
                     }
                 } else {
                     console.log(`TwitterForwardingManager: Tweet does not match config ${config.id}`);
@@ -587,6 +593,12 @@ class ForwardingManager {
                     console.error('Error handling Twitter media file:', mediaError);
                     // Fall back to text-only message
                     await this.whatsappInstance.sendMessageToGroup(groupId, '', formattedMessage);
+                } finally {
+                    try {
+                        if (fs.existsSync(tempFilePath)) {
+                            fs.unlinkSync(tempFilePath);
+                        }
+                    } catch { /* ignore cleanup errors */ }
                 }
             } else if (message.hasMedia && message.mediaSkippedReason) {
                 // Media was skipped, add note to message
@@ -665,14 +677,16 @@ class ForwardingManager {
                         formattedMessage,
                         whatsappMediaType
                     );
-                    
-                    // Clean up temporary file
-                    // fs.unlinkSync(tempFilePath);
-                    
                 } catch (mediaError) {
                     console.error('Error handling media file:', mediaError);
                     // Fallback to text message mentioning media
                     await this.whatsappInstance.sendMessageToGroup(groupId, '', formattedMessage + `\n\n📎 Media: ${message.mediaType || 'Unknown'} (failed to forward)`);
+                } finally {
+                    try {
+                        if (fs.existsSync(tempFilePath)) {
+                            fs.unlinkSync(tempFilePath);
+                        }
+                    } catch { /* ignore cleanup errors */ }
                 }
             } else {
                 // Text-only message or media without buffer

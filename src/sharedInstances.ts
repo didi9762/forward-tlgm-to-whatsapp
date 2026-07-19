@@ -17,7 +17,7 @@ function createWhatsAppInstance(): WhatsAppEngine {
         console.log('[WhatsApp] Using Baileys engine (pairing code)');
         return new BaileysWhatsAppInstance();
     }
-    console.log('[WhatsApp] Using whatsapp-web.js engine (QR / screenshot)');
+    console.log('[WhatsApp] Using whatsapp-web.js engine (QR or optional pairing code)');
     return new WhatsAppInstance();
 }
 

@@ -41,11 +41,14 @@ export class WhatsAppInstance {
     private cachedGroups: GroupChat[] = [];
     private isInitialized: boolean = false;
     private currentQrCode: string = '';
+    private currentPairingCode: string = '';
+    private phoneNumber: string = '';
     private qrCodeCallback?: (qr: string) => void;
     private isRestarting: boolean = false;
     private maxRestartAttempts: number = 3;
     private restartAttempts: number = 0;
     private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+    private authPageReady: boolean = false;
     
     // Message queue properties
     private messageQueue: QueueItem[] = [];
@@ -58,25 +61,45 @@ export class WhatsAppInstance {
     private messageHandlers: ((message: WhatsAppMessage) => void)[] = [];
 
     constructor() {
-        // Clean up any existing singleton locks before creating client
-        this.client = new Client({
+        this.phoneNumber = (
+            process.env.WHATSAPP_PHONE_NUMBER ||
+            process.env.BAILEYS_PHONE_NUMBER ||
+            ''
+        ).replace(/[^0-9]/g, '');
+        this.client = this.createClient(this.phoneNumber || undefined);
+        this.startQueueProcessor();
+    }
+
+    private createClient(pairPhone?: string): Client {
+        const options: ConstructorParameters<typeof Client>[0] = {
             authStrategy: new LocalAuth({
-                clientId: "telegram-forwarder"
+                clientId: 'telegram-forwarder'
             }),
             puppeteer: {
-                //use the chrome depende on the os
-                executablePath: process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : process.platform === 'linux' ? '/usr/bin/google-chrome' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                executablePath: process.platform === 'win32'
+                    ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+                    : process.platform === 'linux'
+                        ? '/usr/bin/google-chrome'
+                        : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
                 headless: true,
                 args: [
-                    "--no-sandbox",
-                    "--disable-software-rasterizer",
+                    '--no-sandbox',
+                    '--disable-software-rasterizer',
                     '--max-old-space-size=4096',
                     '--no-sandbox',
-                  ],
+                ],
             }
-        });
+        };
 
-        this.startQueueProcessor();
+        if (pairPhone) {
+            options.pairWithPhoneNumber = {
+                phoneNumber: pairPhone,
+                showNotification: true,
+                intervalMs: 180000,
+            };
+        }
+
+        return new Client(options);
     }
 
     /**
@@ -174,38 +197,70 @@ export class WhatsAppInstance {
         try {
             this.qrCodeCallback = qrCallback;
             this.currentQrCode = '';
+            this.currentPairingCode = '';
+            this.authPageReady = false;
 
-            console.log('Initializing WhatsApp client...');
-            await this.client.initialize();
+            const mode = this.phoneNumber ? `pairing code (${this.phoneNumber})` : 'QR';
+            console.log(`Initializing WhatsApp client (auth: ${mode})...`);
 
             this.setupEventHandlers();
+            // Fire-and-forget: initialize() resolves when auth page is up or client is ready
+            void this.client.initialize().catch((error) => {
+                console.error('WhatsApp client.initialize() failed:', error);
+            });
 
             return new Promise((resolve, reject) => {
+                let settled = false;
+                const settleOk = () => {
+                    if (!settled) {
+                        settled = true;
+                        resolve();
+                    }
+                };
+                const settleErr = (err: Error) => {
+                    if (!settled) {
+                        settled = true;
+                        reject(err);
+                    }
+                };
+
                 this.client.once('qr', (qr) => {
-                    console.log('WhatsApp needs scan');
+                    console.log('WhatsApp needs QR scan (or request a pairing code)');
                     this.currentQrCode = qr;
-                    resolve();
+                    this.authPageReady = true;
+                    if (this.qrCodeCallback) this.qrCodeCallback(qr);
+                    settleOk();
+                });
+
+                this.client.once('code', (code: string) => {
+                    console.log(`WhatsApp pairing code: ${code}`);
+                    this.currentPairingCode = code;
+                    this.currentQrCode = '';
+                    this.authPageReady = true;
+                    settleOk();
                 });
 
                 this.client.once('ready', () => {
                     this.isInitialized = true;
                     this.currentQrCode = '';
+                    this.currentPairingCode = '';
+                    this.authPageReady = false;
                     console.log('WhatsApp client is ready!');
                     void this.loadGroupsAfterReady().catch((error) => {
                         console.error('Error loading groups after ready:', error);
                     });
                     this.startKeepAlive();
-                    resolve();
+                    settleOk();
                 });
 
                 this.client.once('auth_failure', (msg) => {
                     console.error('Authentication failed:', msg);
-                    reject(new Error(`Authentication failed: ${msg}`));
+                    settleErr(new Error(`Authentication failed: ${msg}`));
                 });
 
                 setTimeout(() => {
-                    if (!this.isInitialized && !this.currentQrCode) {
-                        reject(new Error('WhatsApp client initialization timeout'));
+                    if (!this.isInitialized && !this.currentQrCode && !this.currentPairingCode) {
+                        settleErr(new Error('WhatsApp client initialization timeout'));
                     }
                 }, 1000 * 60 * 2);
             });
@@ -227,15 +282,75 @@ export class WhatsAppInstance {
         return 'wwebjs';
     }
 
+    public getPhoneNumber(): string {
+        return this.phoneNumber;
+    }
+
     public getPairingInfo(): { type: 'qr'; data: string } | { type: 'code'; data: string } | null {
+        if (this.currentPairingCode) {
+            return { type: 'code', data: this.currentPairingCode };
+        }
         if (this.currentQrCode) {
             return { type: 'qr', data: this.currentQrCode };
         }
         return null;
     }
 
-    public async pairWithPhone(_phone: string): Promise<string> {
-        throw new Error('Pairing code is only supported with the Baileys engine (set WHATSAPP_ENGINE=baileys)');
+    /**
+     * Request a pairing code (optional alternative to QR).
+     * Works while the client is waiting for authentication.
+     */
+    public async pairWithPhone(phone: string): Promise<string> {
+        this.phoneNumber = phone.replace(/[^0-9]/g, '');
+        if (!this.phoneNumber) {
+            throw new Error('Invalid phone number (digits only, with country code)');
+        }
+
+        if (this.isInitialized) {
+            throw new Error('WhatsApp is already connected. Reset the instance first to re-pair.');
+        }
+
+        // Prefer requesting a code on the already-open auth page (switch from QR → code)
+        const pageReady = await this.waitForAuthPage(45000);
+        if (pageReady && this.client.pupPage) {
+            try {
+                console.log(`[WhatsApp] Requesting pairing code for ${this.phoneNumber}...`);
+                const code = await this.client.requestPairingCode(this.phoneNumber);
+                this.currentPairingCode = code;
+                this.currentQrCode = '';
+                console.log(`[WhatsApp] Pairing code: ${code}`);
+                return code;
+            } catch (error) {
+                console.warn('[WhatsApp] requestPairingCode failed, recreating client with pairWithPhoneNumber:', error);
+            }
+        }
+
+        // Fallback: recreate client in pairing-code mode
+        try {
+            await this.destroyWithTimeout(10000);
+        } catch { /* ignore */ }
+
+        this.client = this.createClient(this.phoneNumber);
+        await this.initialize();
+
+        if (!this.currentPairingCode) {
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        return this.currentPairingCode || 'Pairing code pending...';
+    }
+
+    private async waitForAuthPage(timeoutMs: number): Promise<boolean> {
+        if (this.authPageReady || this.client.pupPage) return true;
+
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            if (this.authPageReady || this.client.pupPage || this.currentQrCode || this.currentPairingCode) {
+                return true;
+            }
+            if (this.isInitialized) return false;
+            await new Promise(r => setTimeout(r, 500));
+        }
+        return !!(this.authPageReady || this.client.pupPage);
     }
 
     /**
@@ -254,21 +369,11 @@ export class WhatsAppInstance {
         }
         try {
             console.log('Restarting WhatsApp client...');
-            this.client = new Client({
-                authStrategy: new LocalAuth({
-                    clientId: "telegram-forwarder"
-                }),
-                puppeteer: {
-                    executablePath: process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : process.platform === 'linux' ? '/usr/bin/google-chrome' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    headless: true,
-                    args: [
-                        "--no-sandbox",
-                        "--disable-software-rasterizer",
-                        '--max-old-space-size=4096',
-                        '--no-sandbox',
-                    ],
-                }
-            });
+            this.currentPairingCode = '';
+            this.currentQrCode = '';
+            this.authPageReady = false;
+            // Keep optional pairing phone if set; otherwise fall back to QR
+            this.client = this.createClient(this.phoneNumber || undefined);
             await this.initialize();
             console.log('WhatsApp client restarted successfully');
         } catch (error) {
@@ -437,22 +542,11 @@ export class WhatsAppInstance {
                 console.log('Cache directory removed successfully');
             }
 
-            // Create new client instance
-            this.client = new Client({
-                authStrategy: new LocalAuth({
-                    clientId: "telegram-forwarder"
-                }),
-                puppeteer: {
-                    executablePath: process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : process.platform === 'linux' ? '/usr/bin/google-chrome' : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    headless: true,
-                    args: [
-                        "--no-sandbox",
-                        "--disable-software-rasterizer",
-                        '--max-old-space-size=4096',
-                        '--no-sandbox',
-                    ],
-                }
-            });
+            this.currentPairingCode = '';
+            this.currentQrCode = '';
+            this.authPageReady = false;
+            // After reset: QR by default unless a phone number is configured
+            this.client = this.createClient(this.phoneNumber || undefined);
 
             // Initialize the new client
             await this.initialize();
@@ -742,13 +836,30 @@ export class WhatsAppInstance {
      * Setup event handlers for the WhatsApp client
      */
     private setupEventHandlers(): void {
+        this.client.on('code', (code: string) => {
+            this.currentPairingCode = code;
+            this.currentQrCode = '';
+            this.authPageReady = true;
+            console.log(`[WhatsApp] Pairing code updated: ${code}`);
+        });
+
+        this.client.on('qr', (qr: string) => {
+            this.currentQrCode = qr;
+            this.authPageReady = true;
+            if (this.qrCodeCallback) this.qrCodeCallback(qr);
+        });
+
         this.client.on('authenticated', () => {
             console.log('WhatsApp authenticated successfully');
-            this.currentQrCode = ''; // Clear QR code when authenticated
+            this.currentQrCode = '';
+            this.currentPairingCode = '';
+            this.authPageReady = false;
         });
 
         this.client.on('ready', () => {
-            this.currentQrCode = ''; // Clear QR code when ready
+            this.currentQrCode = '';
+            this.currentPairingCode = '';
+            this.authPageReady = false;
             // Chats are loaded only from initialize()'s ready handler via loadGroupsAfterReady()
         });
 
@@ -912,13 +1023,14 @@ export class WhatsAppInstance {
             try {
                 await this.sendMessageDirectly(queueItem.groupId, queueItem.mediaPath, queueItem.content, queueItem.options);
                 queueItem.resolve();
-                if (queueItem.mediaPath) {
-                    fs.unlinkSync(queueItem.mediaPath);
-                }
                 console.log(`[Queue] Message ${queueItem.id} sent successfully`);
             } catch (error) {
                 console.error(`[Queue] Failed to send message ${queueItem.id}:`, error);
                 queueItem.reject(error);
+            } finally {
+                if (queueItem.mediaPath && !queueItem.mediaPath.startsWith('data:') && fs.existsSync(queueItem.mediaPath)) {
+                    try { fs.unlinkSync(queueItem.mediaPath); } catch (_) {}
+                }
             }
 
             // Wait before processing next message

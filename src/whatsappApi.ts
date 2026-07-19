@@ -25,7 +25,7 @@ router.get('/status', async (req, res) => {
             engine,
             hasQrCode: !!whatsappInstance.getCurrentQrCode(),
             pairingInfo,
-            phoneNumber: engine === 'baileys' && 'getPhoneNumber' in whatsappInstance
+            phoneNumber: 'getPhoneNumber' in whatsappInstance
                 ? (whatsappInstance as any).getPhoneNumber()
                 : null,
             clientInfo: clientInfo
@@ -40,17 +40,11 @@ router.get('/status', async (req, res) => {
 });
 
 /**
- * Pair Baileys with a phone number (returns pairing code)
+ * Pair with a phone number (returns pairing code).
+ * Supported for both Baileys and whatsapp-web.js (optional alternative to QR).
  */
 router.post('/pair', async (req, res) => {
     try {
-        if (whatsappInstance.getEngineType() !== 'baileys') {
-            return res.status(400).json({
-                success: false,
-                message: 'Pairing code is only available when WHATSAPP_ENGINE=baileys'
-            });
-        }
-
         const phone = String(req.body?.phoneNumber || req.body?.phone || '').replace(/[^0-9]/g, '');
         if (!phone) {
             return res.status(400).json({
@@ -62,9 +56,10 @@ router.post('/pair', async (req, res) => {
         const code = await whatsappInstance.pairWithPhone(phone);
         res.json({
             success: true,
-            message: 'Pairing initiated. Enter the code in WhatsApp > Linked Devices.',
+            message: 'Pairing initiated. Enter the code in WhatsApp → Linked Devices → Link with phone number.',
             pairingCode: code,
-            phoneNumber: phone
+            phoneNumber: phone,
+            engine: whatsappInstance.getEngineType()
         });
     } catch (error: any) {
         res.status(500).json({
@@ -182,7 +177,7 @@ router.post('/reset', async (req, res) => {
             success: true,
             message: whatsappInstance.getEngineType() === 'baileys'
                 ? 'Baileys auth cleared. Enter a phone number to request a new pairing code.'
-                : 'WhatsApp instance reset successfully. Auth and cache directories deleted.'
+                : 'WhatsApp instance reset successfully. Scan the QR code, or enter a phone number for a pairing code.'
         });
     } catch (error: any) {
         res.status(500).json({

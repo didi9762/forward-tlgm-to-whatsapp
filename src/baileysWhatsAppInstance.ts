@@ -723,11 +723,12 @@ export class BaileysWhatsAppInstance {
                     await this.sendTextToGroupDirectly(queueItem.groupId, queueItem.content);
                 }
                 queueItem.resolve();
-                if (queueItem.mediaPath && fs.existsSync(queueItem.mediaPath) && !queueItem.mediaPath.startsWith('data:')) {
-                    try { fs.unlinkSync(queueItem.mediaPath); } catch (_) {}
-                }
             } catch (error) {
                 queueItem.reject(error);
+            } finally {
+                if (queueItem.mediaPath && !queueItem.mediaPath.startsWith('data:') && fs.existsSync(queueItem.mediaPath)) {
+                    try { fs.unlinkSync(queueItem.mediaPath); } catch (_) {}
+                }
             }
 
             await new Promise(resolve => setTimeout(resolve, this.queueProcessingDelay));

@@ -59,7 +59,8 @@ export class TwitterInstance {
     private isStreaming: boolean = false;
     private currentStream: any = null;
     private pollingInterval: NodeJS.Timeout | null = null;
-    private readonly POLLING_INTERVAL_MS = 1 * 60 * 1000; // 15 minutes
+    private readonly POLLING_INTERVAL_MS = 1 * 60 * 1000; // 1 minute
+    private readonly MAX_PROCESSED_TWEET_IDS = 2000;
     private listeningAccounts: Set<string> = new Set();
     private messageHandlers: ((message: TwitterMessage) => void)[] = [];
     private reconnectAttempts: number = 0;
@@ -68,9 +69,57 @@ export class TwitterInstance {
     private keepAliveInterval: NodeJS.Timeout | null = null;
     private isKeepAliveActive: boolean = false;
     private isFirstPoll: boolean = true; // Track if this is the first poll
+    private isPollInProgress: boolean = false;
+    private processedTweetIds: Set<string> = new Set();
+    /** When false, Twitter search polls are skipped to avoid wasting API quota. */
+    private deliveryReadyCheck: (() => boolean) | null = null;
+    private pollingPausedDueToDelivery: boolean = false;
+    private lastDeliverySkipLogAt: number = 0;
 
     constructor() {
         this.loadListeningAccountsFromConfig();
+    }
+
+    /**
+     * Gate Twitter polling on downstream delivery readiness (e.g. WhatsApp connected).
+     */
+    public setDeliveryReadyCheck(check: (() => boolean) | null): void {
+        this.deliveryReadyCheck = check;
+    }
+
+    /**
+     * Pause Twitter API polling until delivery is ready again.
+     */
+    public pausePolling(reason?: string): void {
+        if (!this.pollingPausedDueToDelivery) {
+            console.log(`Pausing Twitter polling${reason ? `: ${reason}` : ''}`);
+        }
+        this.pollingPausedDueToDelivery = true;
+    }
+
+    /**
+     * Explicitly resume Twitter API polling.
+     */
+    public resumePolling(): void {
+        if (this.pollingPausedDueToDelivery) {
+            console.log('Resuming Twitter polling');
+        }
+        this.pollingPausedDueToDelivery = false;
+    }
+
+    private isDeliveryReady(): boolean {
+        const ready = this.deliveryReadyCheck ? this.deliveryReadyCheck() : true;
+
+        if (this.pollingPausedDueToDelivery) {
+            if (ready) {
+                this.pollingPausedDueToDelivery = false;
+                console.log('Delivery target ready again, resuming Twitter polling');
+                return true;
+            }
+            return false;
+        }
+
+        return ready;
     }
 
     /**
@@ -247,8 +296,56 @@ export class TwitterInstance {
         return lastSinceId ? lastSinceId : null;
     }
 
-    private setLastSinceId(sinceId: string): void {
-        configManager.setLastSinceId(sinceId);
+    /**
+     * Persist lastSinceId, but never move the watermark backwards.
+     * Twitter snowflake IDs are monotonically increasing.
+     */
+    private async setLastSinceId(sinceId: string): Promise<void> {
+        if (!sinceId) return;
+
+        const current = this.getLastSinceId();
+        if (current) {
+            try {
+                if (BigInt(sinceId) <= BigInt(current)) {
+                    return;
+                }
+            } catch {
+                // If comparison fails, still attempt to store the new id
+            }
+        }
+
+        await configManager.setLastSinceId(sinceId);
+    }
+
+    private markTweetProcessed(tweetId: string): boolean {
+        if (this.processedTweetIds.has(tweetId)) {
+            return false;
+        }
+
+        this.processedTweetIds.add(tweetId);
+
+        // Bound memory: drop oldest entries when the set grows too large
+        if (this.processedTweetIds.size > this.MAX_PROCESSED_TWEET_IDS) {
+            const toDelete = this.processedTweetIds.size - this.MAX_PROCESSED_TWEET_IDS;
+            let deleted = 0;
+            for (const id of this.processedTweetIds) {
+                this.processedTweetIds.delete(id);
+                deleted++;
+                if (deleted >= toDelete) break;
+            }
+        }
+
+        return true;
+    }
+
+    private maxSnowflakeId(a: string | null, b: string | null): string | null {
+        if (!a) return b;
+        if (!b) return a;
+        try {
+            return BigInt(a) >= BigInt(b) ? a : b;
+        } catch {
+            return a > b ? a : b;
+        }
     }
 
 
@@ -317,14 +414,20 @@ export class TwitterInstance {
             clearInterval(this.pollingInterval);
         }
         
-        console.log(`Starting Twitter polling with 16-minute intervals...`);
+        console.log(`Starting Twitter polling with ${this.POLLING_INTERVAL_MS / 1000}-second intervals...`);
         
-        // Do first poll immediately with 1 minute lookback
+        // Do first poll immediately. Prefer persisted since_id to avoid re-forwarding.
         (async () => {
             try {
                 if (this.isFirstPoll) {
-                    console.log('First poll - fetching tweets from last 1 minute only');
-                    await this.fetchRecentTweetsFromUsers(1, true); // Only 1 minute for first poll
+                    const sinceId = this.getLastSinceId();
+                    if (sinceId && this.isSinceIdValid(sinceId)) {
+                        console.log(`First poll - resuming from since_id ${sinceId}`);
+                        await this.fetchRecentTweetsFromUsers();
+                    } else {
+                        console.log('First poll - no valid since_id, fetching tweets from last 1 minute only');
+                        await this.fetchRecentTweetsFromUsers(1, true);
+                    }
                     this.isFirstPoll = false;
                 } else {
                     await this.fetchRecentTweetsFromUsers();
@@ -334,7 +437,6 @@ export class TwitterInstance {
             }
         })();
         
-        // Poll every 16 minutes for new tweets
         this.pollingInterval = setInterval(async () => {
             try {
                 await this.fetchRecentTweetsFromUsers();
@@ -394,19 +496,49 @@ export class TwitterInstance {
     }
 
     private async fetchRecentTweetsFromUsers(sinceMinutes = 1, force = false): Promise<void> {
+        if (!this.isDeliveryReady()) {
+            const now = Date.now();
+            // Avoid spamming logs every minute
+            if (now - this.lastDeliverySkipLogAt > 5 * 60 * 1000) {
+                console.log('Skipping Twitter poll - WhatsApp client is not connected (saving API quota)');
+                this.lastDeliverySkipLogAt = now;
+            }
+            return;
+        }
+
+        if (this.isPollInProgress) {
+            console.log('Twitter poll already in progress, skipping overlapping poll');
+            return;
+        }
+
+        this.isPollInProgress = true;
         console.log('Fetching recent tweets from users');
-        if (!this.client) return;
-    
-        const accounts = this.getListeningAccounts();
-        if (accounts.length === 0) return;
-    
-        // Split accounts into batches to avoid exceeding query length limit (512 chars)
-        const batches = this.splitAccountsIntoBatches(accounts);
-        console.log(`Split ${accounts.length} accounts into ${batches.length} batches`);
-    
-        for (let i = 0; i < batches.length; i++) {
-            console.log(`Processing batch ${i + 1}/${batches.length} with ${batches[i].length} accounts`);
-            await this.fetchTweetsForBatch(batches[i], sinceMinutes, force);
+
+        try {
+            if (!this.client) return;
+
+            const accounts = this.getListeningAccounts();
+            if (accounts.length === 0) return;
+
+            // Split accounts into batches to avoid exceeding query length limit (512 chars)
+            const batches = this.splitAccountsIntoBatches(accounts);
+            console.log(`Split ${accounts.length} accounts into ${batches.length} batches`);
+
+            // Track the newest tweet id across all batches so a quieter batch
+            // cannot lower the shared watermark and cause re-fetches.
+            let newestSinceId: string | null = null;
+
+            for (let i = 0; i < batches.length; i++) {
+                console.log(`Processing batch ${i + 1}/${batches.length} with ${batches[i].length} accounts`);
+                const batchNewestId = await this.fetchTweetsForBatch(batches[i], sinceMinutes, force);
+                newestSinceId = this.maxSnowflakeId(newestSinceId, batchNewestId);
+            }
+
+            if (newestSinceId) {
+                await this.setLastSinceId(newestSinceId);
+            }
+        } finally {
+            this.isPollInProgress = false;
         }
     }
     
@@ -442,8 +574,8 @@ export class TwitterInstance {
         return batches;
     }
     
-    private async fetchTweetsForBatch(accounts: any[], sinceMinutes: number, force: boolean): Promise<void> {
-        if (!this.client || accounts.length === 0) return;
+    private async fetchTweetsForBatch(accounts: any[], sinceMinutes: number, force: boolean): Promise<string | null> {
+        if (!this.client || accounts.length === 0) return null;
     
         // Build OR query for this batch
         const userQuery = accounts.map(u => `from:${u.username}`).join(' OR ');
@@ -466,6 +598,14 @@ export class TwitterInstance {
               ],
             max_results: 100,
         }
+
+        const getNewestTweetId = (tweets: TweetV2[]): string | null => {
+            if (!tweets || tweets.length === 0) return null;
+            return tweets.reduce<string | null>((newest, tweet) => {
+                if (!tweet?.id) return newest;
+                return this.maxSnowflakeId(newest, tweet.id);
+            }, null);
+        };
     
         try {
             const sinceId = this.getLastSinceId();
@@ -483,28 +623,24 @@ export class TwitterInstance {
     
             const res = await this.client.v2.search(query, params);
             console.log('Fetched tweets from batch:', res.tweets.length);
-    
+
+            let newestTweetId: string | null = null;
             for await (const tweet of res) {
+                newestTweetId = this.maxSnowflakeId(newestTweetId, tweet.id);
                 // Filter includes to only contain data relevant to this specific tweet
                 const filteredIncludes = this.filterIncludesForTweet(tweet, res.includes);
                 
-                // Log tweet object to separate file with filtered includes
                 await this.handleTweet(tweet, filteredIncludes);
             }
     
-            const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => 
-                new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
-            )[0];
-            
-            if(lastTweet?.id){
-               this.setLastSinceId(lastTweet.id);
-            }
+            return newestTweetId ?? getNewestTweetId(res.tweets);
     
         } catch (error: any) {
             if (error.code === 429 && error.rateLimit) {
                 console.error(this.logRateLimitError(error, 'Error fetching tweets:'));
                 // Reset the polling timer to start from when rate limit is released
                 this.handleRateLimitError(error.rateLimit);
+                return null;
             } else if (error.data?.errors?.some((e: any) => e.message?.includes('since_id'))) {
                 // Handle since_id validation error by clearing it and retrying with start_time
                 console.log('since_id validation failed, clearing and retrying with start_time');
@@ -519,23 +655,21 @@ export class TwitterInstance {
                     
                     
                     const res = await this.client.v2.search(query, retryParams);
-    
+
+                    let newestTweetId: string | null = null;
                     for await (const tweet of res) {
+                        newestTweetId = this.maxSnowflakeId(newestTweetId, tweet.id);
                         await this.handleTweet(tweet, res.includes);
                     }
     
-                    const lastTweet = res.tweets.sort((a: TweetV2, b: TweetV2) => 
-                        new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
-                    )[0];
-                    
-                    if(lastTweet?.id){
-                       this.setLastSinceId(lastTweet.id);
-                    }
+                    return newestTweetId ?? getNewestTweetId(res.tweets);
                 } catch (retryError) {
                     console.error('Error fetching tweets (retry):', retryError);
+                    return null;
                 }
             } else {
                 console.error('Error fetching tweets:', error);
+                return null;
             }
         }
     }
@@ -636,6 +770,12 @@ export class TwitterInstance {
             const author = includes?.users?.find((user: any) => user.id === tweet.author_id);
             if (!author) {
                 console.log('Author information not found for tweet:', tweet.id);
+                return;
+            }
+
+            // Dedup before media download / forwarding so overlapping polls can't re-send
+            if (!this.markTweetProcessed(tweet.id)) {
+                console.log(`Skipping already-processed tweet ${tweet.id}`);
                 return;
             }
 

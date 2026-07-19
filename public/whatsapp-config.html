@@ -51,10 +51,10 @@
                 </button>
             </div>
 
-            <!-- Baileys Pairing Section -->
+            <!-- Pairing Code Section (Baileys + optional for wwebjs) -->
             <div class="section" id="pairingSection" style="display: none;">
                 <h2>🔗 Pair with Phone Code</h2>
-                <p>Enter your phone number with country code (digits only). Then open WhatsApp → Linked Devices → Link with phone number.</p>
+                <p id="pairingHelp">Enter your phone number with country code (digits only). Then open WhatsApp → Linked Devices → Link with phone number.</p>
                 <div style="display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px;">
                     <div style="flex: 1; min-width: 220px;">
                         <label for="phoneNumberInput"><strong>Phone number</strong></label>
@@ -157,19 +157,26 @@
                 currentEngine = data.engine || 'wwebjs';
                 engineLabel.textContent = currentEngine === 'baileys'
                     ? 'Engine: Baileys (pairing code)'
-                    : 'Engine: WhatsApp Web (QR / screenshot)';
+                    : 'Engine: WhatsApp Web (QR or optional pairing code)';
+
+                const pairingHelp = document.getElementById('pairingHelp');
+                pairingSection.style.display = 'block';
+                if (data.phoneNumber && !document.getElementById('phoneNumberInput').value) {
+                    document.getElementById('phoneNumberInput').value = data.phoneNumber;
+                }
 
                 if (currentEngine === 'baileys') {
-                    pairingSection.style.display = 'block';
                     screenshotSection.style.display = 'none';
                     stopScreenshotUpdates();
-                    if (data.phoneNumber && !document.getElementById('phoneNumberInput').value) {
-                        document.getElementById('phoneNumberInput').value = data.phoneNumber;
+                    if (pairingHelp) {
+                        pairingHelp.textContent = 'Enter your phone number with country code (digits only). Then open WhatsApp → Linked Devices → Link with phone number.';
                     }
                 } else {
-                    pairingSection.style.display = 'none';
                     screenshotSection.style.display = 'block';
                     if (!screenshotInterval) startScreenshotUpdates();
+                    if (pairingHelp) {
+                        pairingHelp.textContent = 'Optional: scan the QR via the live screenshot below, or enter your phone number here to get a pairing code instead.';
+                    }
                 }
                 
                 if (data.success && data.isReady) {
@@ -193,7 +200,7 @@
                     statusEl.className = 'status-indicator status-disconnected';
                     statusEl.innerHTML = currentEngine === 'baileys'
                         ? '<div class="status-dot"></div><span>❌ Disconnected — enter phone to pair</span>'
-                        : '<div class="status-dot"></div><span>❌ Disconnected</span>';
+                        : '<div class="status-dot"></div><span>❌ Disconnected — scan QR or use pairing code</span>';
                     restartBtn.disabled = false;
                     resetBtn.disabled = false;
                 }
@@ -298,7 +305,7 @@
             // Confirm before reset
             const resetMsg = currentEngine === 'baileys'
                 ? '⚠️ This will delete Baileys auth data. You will need to request a new pairing code. Are you sure?'
-                : '⚠️ This will delete all WhatsApp authentication data and cache. You will need to scan the QR code again. Are you sure?';
+                : '⚠️ This will delete all WhatsApp authentication data and cache. You will need to scan the QR code or request a new pairing code. Are you sure?';
             if (!confirm(resetMsg)) {
                 return;
             }
@@ -316,7 +323,7 @@
                 if (data.success) {
                     showAlert('success', currentEngine === 'baileys'
                         ? '✅ Auth cleared. Enter your phone number to get a new pairing code.'
-                        : '✅ WhatsApp instance reset successfully! Please scan the new QR code.');
+                        : '✅ WhatsApp instance reset successfully! Scan the QR code or request a pairing code.');
                     document.getElementById('pairingCodeBox').style.display = 'none';
                     setTimeout(() => {
                         checkConnectionStatus();
